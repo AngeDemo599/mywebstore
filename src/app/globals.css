@@ -1,26 +1,169 @@
 @import "tailwindcss";
 
+@custom-variant pro-dark (.pro-dark &);
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f1f1f1;
+  --foreground: #303030;
+  --sidebar-width: 16rem;
+  --header-height: 4rem;
+  --color-primary: #303030;
+  --color-text-primary: #303030;
+  --color-text-subdued: #616161;
+  --color-input-border: #8a8a8a;
+  --color-section-border: #e3e3e3;
+  --color-input-bg: #fdfdfd;
+  --color-toolbar-bg: #f7f7f7;
+  --color-page-bg: #f1f1f1;
+  --color-link: #005bd3;
+  --color-primary-button: #2c2c2c;
+  --radius-card: 12px;
+  --radius-input: 8px;
+  --radius-button: 8px;
+
+  /* Brand tokens */
+  --brand: #C8F03F;
+  --brand-hover: #B8E030;
+  --brand-light: #E6F8A0;
+  --brand-glow: rgba(200, 240, 63, 0.15);
+
+  /* Dashboard theme tokens — light defaults */
+  --d-surface: #ffffff;
+  --d-surface-secondary: #f7f7f7;
+  --d-surface-tertiary: #f1f1f1;
+  --d-text: #303030;
+  --d-text-sub: #616161;
+  --d-text-muted: #8a8a8a;
+  --d-border: #e3e3e3;
+  --d-input-border: #8a8a8a;
+  --d-input-bg: #fdfdfd;
+  --d-bg: #f1f1f1;
+  --d-link: #005bd3;
+  --d-hover-bg: #f7f7f7;
+  --d-active-bg: #f1f1f1;
+  --d-subtle-bg: rgba(0,0,0,0.06);
+
+  /* Status colors */
+  --accent-red: #FF6B6B;
+  --accent-soft: #F5F5FA;
+}
+
+/* PRO dark mode overrides */
+.pro-dark {
+  --background: #121212;
+  --foreground: #ffffff;
+  --d-surface: #1E1E1E;
+  --d-surface-secondary: #252525;
+  --d-surface-tertiary: #2C2C2C;
+  --d-text: #FFFFFF;
+  --d-text-sub: #A1A1A1;
+  --d-text-muted: #666666;
+  --d-border: #2C2C2C;
+  --d-input-border: #3a3a3a;
+  --d-input-bg: #1E1E1E;
+  --d-bg: #121212;
+  --d-link: #C8F03F;
+  --d-hover-bg: #252525;
+  --d-active-bg: #2C2C2C;
+  --d-subtle-bg: rgba(255,255,255,0.06);
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-sans: var(--font-inter);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Brand tokens for Tailwind utilities */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-light: var(--brand-light);
+
+  /* Dashboard theme tokens for Tailwind utilities */
+  --color-d-surface: var(--d-surface);
+  --color-d-surface-secondary: var(--d-surface-secondary);
+  --color-d-surface-tertiary: var(--d-surface-tertiary);
+  --color-d-text: var(--d-text);
+  --color-d-text-sub: var(--d-text-sub);
+  --color-d-text-muted: var(--d-text-muted);
+  --color-d-border: var(--d-border);
+  --color-d-input-border: var(--d-input-border);
+  --color-d-input-bg: var(--d-input-bg);
+  --color-d-bg: var(--d-bg);
+  --color-d-link: var(--d-link);
+  --color-d-hover-bg: var(--d-hover-bg);
+  --color-d-active-bg: var(--d-active-bg);
+  --color-d-subtle-bg: var(--d-subtle-bg);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+}
+
+/* Arabic font when RTL */
+[dir="rtl"] body {
+  font-family: "IBM Plex Sans Arabic", "Inter", system-ui, -apple-system, sans-serif;
+}
+
+/* RTL layout overrides */
+[dir="rtl"] .sidebar-fixed {
+  right: 0;
+  left: auto;
+}
+
+[dir="rtl"] .content-with-sidebar {
+  margin-right: 16rem;
+  margin-left: 0;
+}
+
+/* Shopify card shadow utility */
+.shadow-card {
+  box-shadow: 0 1px 0 0 rgba(0,0,0,.05), 0 0 0 0.5px #e3e3e3, 0 2px 2px -1px rgba(0,0,0,.04);
+}
+
+/* Dark mode card shadow */
+.pro-dark .shadow-card {
+  box-shadow: 0 0 0 0.5px #2C2C2C, 0 1px 3px rgba(0,0,0,0.4);
+}
+
+/* Brand glow utility */
+.shadow-glow {
+  box-shadow: 0 0 20px rgba(200, 240, 63, 0.15);
+}
+
+/* Dark mode form inputs */
+.pro-dark input[type="text"],
+.pro-dark input[type="email"],
+.pro-dark input[type="password"],
+.pro-dark input[type="number"],
+.pro-dark input[type="tel"],
+.pro-dark input[type="url"],
+.pro-dark input[type="search"],
+.pro-dark select,
+.pro-dark textarea {
+  background-color: var(--d-input-bg);
+  border-color: var(--d-input-border);
+  color: var(--d-text);
+}
+
+/* Base input/select/textarea styles */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="search"],
+select,
+textarea {
+  font-size: 13px;
+}
+
+/* Subtle bounce for CTA buttons */
+@keyframes subtle-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }

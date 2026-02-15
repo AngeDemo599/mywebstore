@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_DELIVERY
+  DELIVERED
+  RETURNED
+}
+
+enum UpgradeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SubscriptionDuration {
+  MONTHLY
+  YEARLY
+}
+
+enum TokenTransactionType {
+  PURCHASE
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+  UNLOCK_ORDER
+  PRO_BONUS
+  REFERRAL_BONUS
+}
+
+enum TokenPurchaseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AnalyticsAccessType {
+  NONE
+  TRIAL
+  PRO
+}
+
+enum AnalyticsEventType {
+  PAGE_VIEW
+  SCROLL_50
+  FORM_VIEW
+  FORM_START
+  FORM_SUBMIT
+  IMAGE_CLICK
+}
+
+model User {
+  id                String             @id @default(uuid())
+  name              String?
+  phone             String?
+  email             String             @unique
+  password          String?
+  emailVerified     DateTime?
+  role              Role               @default(USER)
+  plan              Plan               @default(FREE)
+  planExpiresAt     DateTime?
+  receivedProBonus      Boolean              @default(false)
+  analyticsAccessType   AnalyticsAccessType  @default(NONE)
+  analyticsTrialEndsAt  DateTime?
+  referralCode          String?              @unique
+  referredById          String?
+  referredBy            User?                @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals             User[]               @relation("UserReferrals")
+  createdAt             DateTime             @default(now())
+  stores                Store[]
+  accounts          Account[]
+  upgradeRequests   UpgradeRequest[]
+  tokenBalance      TokenBalance?
+  tokenTransactions TokenTransaction[]
+  tokenPurchases    TokenPurchase[]
+  orderUnlocks      OrderUnlock[]
+  referralsMade     Referral[]         @relation("ReferrerReferrals")
+  referralReceived  Referral?          @relation("ReferredReferrals")
+  referralEarnings  ReferralEarning[]
+}
+
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  email     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+model Store {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  logo      String?
+  theme     Json?
+  language  String    @default("ar")
+  ownerId   String
+  owner     User      @relation(fields: [ownerId], references: [id])
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  title         String
+  description   String
+  contentBlocks Json?
+  price         Float?
+  category      String?
+  images        Json     @default("[]")
+  variations    Json?
+  promotions    Json?
+  shippingFee   Float?
+  slug          String   @unique
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id])
+  createdAt     DateTime @default(now())
+  orders        Order[]
+}
+
+model UpgradeRequest {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  paymentProof    String
+  duration        SubscriptionDuration @default(MONTHLY)
+  status          UpgradeStatus @default(PENDING)
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  reviewedAt      DateTime?
+}
+
+model Order {
+  id        String        @id @default(uuid())
+  name      String
+  phone     String
+  address   String
+  quantity  Int
+  variants  Json?
+  status    OrderStatus   @default(PENDING)
+  productId String
+  product   Product       @relation(fields: [productId], references: [id])
+  createdAt DateTime      @default(now())
+  unlocks   OrderUnlock[]
+}
+
+model TokenBalance {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model TokenTransaction {
+  id          String               @id @default(uuid())
+  userId      String
+  user        User                 @relation(fields: [userId], references: [id])
+  type        TokenTransactionType
+  amount      Int
+  description String
+  metadata    Json?
+  createdAt   DateTime             @default(now())
+}
+
+model TokenPurchase {
+  id              String              @id @default(uuid())
+  userId          String
+  user            User                @relation(fields: [userId], references: [id])
+  packId          String
+  tokens          Int
+  priceDA         Int
+  paymentProof    String
+  status          TokenPurchaseStatus @default(PENDING)
+  rejectionReason String?
+  createdAt       DateTime            @default(now())
+  reviewedAt      DateTime?
+}
+
+model OrderUnlock {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, orderId])
+}
+
+model AnalyticsEvent {
+  id          String             @id @default(uuid())
+  productId   String
+  storeId     String
+  eventType   AnalyticsEventType
+  sessionId   String
+  visitorId   String
+  referrer    String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  deviceType  String?
+  browser     String?
+  country     String?
+  wilaya      String?
+  city        String?
+  createdAt   DateTime           @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([productId, createdAt])
+  @@index([storeId, eventType, createdAt])
+  @@index([productId, eventType])
+  @@index([visitorId])
+}
+
+model Referral {
+  id         String   @id @default(uuid())
+  referrerId String
+  referrer   User     @relation("ReferrerReferrals", fields: [referrerId], references: [id])
+  referredId String   @unique
+  referred   User     @relation("ReferredReferrals", fields: [referredId], references: [id])
+  status     String   @default("SIGNED_UP")
+  createdAt  DateTime @default(now())
+
+  @@index([referrerId, createdAt])
+}
+
+model ReferralEarning {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  referralId  String
+  amount      Int
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
