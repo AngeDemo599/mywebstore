@@ -22,11 +22,8 @@ function decodeHtmlEntities(text: string): string {
 
 function cleanTitle(title: string): string {
   return title
-    // Remove "- AliExpress" or "| AliExpress" and anything after (including product IDs)
     .replace(/\s*[|\-–—]\s*AliExpress.*$/i, "")
-    // Remove trailing product IDs like "200000345"
     .replace(/\s+\d{6,}$/, "")
-    // Remove "AliExpress" if it appears at the end
     .replace(/\s*AliExpress\s*$/i, "")
     .trim();
 }
@@ -35,8 +32,9 @@ function extractJsonLd(html: string): {
   title: string | null;
   description: string | null;
   images: string[];
+  price: number | null;
 } {
-  const result = { title: null as string | null, description: null as string | null, images: [] as string[] };
+  const result = { title: null as string | null, description: null as string | null, images: [] as string[], price: null as number | null };
 
   const jsonLdRegex = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let match;
@@ -55,6 +53,17 @@ function extractJsonLd(html: string): {
               if (url && typeof url === "string") result.images.push(url);
             }
           }
+          // Extract price from JSON-LD
+          if (item.offers) {
+            const offers = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+            if (offers?.price) {
+              const p = parseFloat(String(offers.price));
+              if (p > 0) result.price = p;
+            } else if (offers?.lowPrice) {
+              const p = parseFloat(String(offers.lowPrice));
+              if (p > 0) result.price = p;
+            }
+          }
           break;
         }
       }
@@ -67,7 +76,6 @@ function extractJsonLd(html: string): {
 }
 
 function extractMetaTag(html: string, property: string): string | null {
-  // Match both property= and name= attributes
   const regex = new RegExp(
     `<meta[^>]*(?:property|name)=["']${property}["'][^>]*content=["']([^"']*)["']` +
     `|<meta[^>]*content=["']([^"']*)["'][^>]*(?:property|name)=["']${property}["']`,
@@ -116,9 +124,6 @@ function extractFallback(html: string): {
   return { title, description };
 }
 
-/**
- * Strip all HTML tags from a string, leaving only text content.
- */
 function stripHtml(html: string): string {
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
@@ -128,13 +133,6 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-/**
- * Extract title and description directly from AliExpress DOM elements.
- * These are the most reliable sources on the actual product page:
- * - Title: <h1 data-pl="product-title">
- * - Description: <div id="nav-description"> or <div id="product-description">
- * - Also tries: "subject":"..." in embedded JSON data
- */
 function extractAliExpressDom(html: string): {
   title: string | null;
   description: string | null;
@@ -144,14 +142,12 @@ function extractAliExpressDom(html: string): {
 
   // === TITLE extraction ===
 
-  // Strategy 1: <h1 data-pl="product-title">...</h1> (primary, cleanest)
   const h1Match = /<h1[^>]*data-pl=["']product-title["'][^>]*>([\s\S]*?)<\/h1>/i.exec(html);
   if (h1Match?.[1]) {
     const cleaned = stripHtml(h1Match[1]).trim();
     if (cleaned) title = decodeHtmlEntities(cleaned);
   }
 
-  // Strategy 2: <h1 class="...title...">...</h1> (class-based fallback)
   if (!title) {
     const h1ClassMatch = /<h1[^>]*class=["'][^"']*title[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i.exec(html);
     if (h1ClassMatch?.[1]) {
@@ -160,7 +156,6 @@ function extractAliExpressDom(html: string): {
     }
   }
 
-  // Strategy 3: "subject":"..." in embedded JS data (product title in AliExpress data)
   if (!title) {
     const subjectMatch = /"subject"\s*:\s*"([^"]+)"/i.exec(html);
     if (subjectMatch?.[1]) {
@@ -168,7 +163,6 @@ function extractAliExpressDom(html: string): {
     }
   }
 
-  // Strategy 4: "title":"..." in product data JSON
   if (!title) {
     const titleDataMatch = /"(?:productTitle|itemTitle)"\s*:\s*"([^"]+)"/i.exec(html);
     if (titleDataMatch?.[1]) {
@@ -178,7 +172,6 @@ function extractAliExpressDom(html: string): {
 
   // === DESCRIPTION extraction ===
 
-  // Strategy 1: <div id="product-description">...</div> with content
   const descDivMatch = /<div[^>]*id=["']product-description["'][^>]*>([\s\S]*?)<\/div>\s*(?:<iframe|<\/div>)/i.exec(html);
   if (descDivMatch?.[1]) {
     const cleaned = stripHtml(descDivMatch[1]).trim();
@@ -187,28 +180,16 @@ function extractAliExpressDom(html: string): {
     }
   }
 
-  // Strategy 2: <div id="nav-description"> — extract all text inside
   if (!description) {
     const navDescMatch = /<div[^>]*id=["']nav-description["'][^>]*>([\s\S]*?)<\/div>\s*(?:<div[^>]*class=["'][^"']*(?:detail|spec|review)|$)/i.exec(html);
     if (navDescMatch?.[1]) {
       const cleaned = stripHtml(navDescMatch[1]).trim();
-      // Filter out very short or boilerplate text (like just "Overview" / "نظرة عامة")
       if (cleaned && cleaned.length > 20) {
         description = decodeHtmlEntities(cleaned);
       }
     }
   }
 
-  // Strategy 3: "description":"..." in embedded JS data
-  if (!description) {
-    const descDataMatch = /"(?:productDescription|itemDescription|descriptionModule)"\s*:\s*\{[^}]*"descriptionUrl"\s*:\s*"([^"]+)"/i.exec(html);
-    if (descDataMatch?.[1]) {
-      // This is a URL to the description — we note it but can't fetch it here
-      // Fall through to other strategies
-    }
-  }
-
-  // Strategy 4: "description":"<text>" in JSON data (inline description)
   if (!description) {
     const inlineDescMatch = /"(?:description|productDesc)"\s*:\s*"([^"]{20,})"/i.exec(html);
     if (inlineDescMatch?.[1]) {
@@ -224,25 +205,15 @@ function extractAliExpressDom(html: string): {
   return { title, description };
 }
 
-/**
- * Extract gallery images from AliExpress embedded JavaScript data.
- * AliExpress stores image galleries in JS objects like:
- * - window.runParams / data.imageModule.imagePathList
- * - "imagePathList":["//ae01.alicdn.com/..."]
- * - Direct alicdn.com product image URLs in script tags
- */
 function extractGalleryImages(html: string): string[] {
   const images: string[] = [];
   const seen = new Set<string>();
 
   const addImage = (url: string) => {
-    // Normalize
     let resolved = url.trim();
     if (resolved.startsWith("//")) resolved = `https:${resolved}`;
     if (!resolved.startsWith("http")) return;
-    // Only include alicdn.com product images (skip tiny icons, logos)
     if (!resolved.includes("alicdn.com")) return;
-    // Skip very small images (thumbnails with _50x50 etc.)
     if (/_\d{1,2}x\d{1,2}[.\-_]/.test(resolved)) return;
     if (!seen.has(resolved)) {
       seen.add(resolved);
@@ -250,8 +221,6 @@ function extractGalleryImages(html: string): string[] {
     }
   };
 
-  // Strategy 1: Extract imagePathList JSON arrays from embedded JS
-  // Matches: "imagePathList":["//ae01.alicdn.com/kf/...jpg", ...]
   const imagePathListRegex = /"imagePathList"\s*:\s*\[([^\]]+)\]/g;
   let match;
   while ((match = imagePathListRegex.exec(html)) !== null) {
@@ -263,8 +232,6 @@ function extractGalleryImages(html: string): string[] {
     }
   }
 
-  // Strategy 2: Extract from various JSON image array patterns
-  // Matches: "images":["//ae01..."] or "galleryImages":["..."]
   const imageArrayRegex = /"(?:images|galleryImages|productImages)"\s*:\s*\[([^\]]+)\]/g;
   while ((match = imageArrayRegex.exec(html)) !== null) {
     const urlsStr = match[1];
@@ -275,20 +242,50 @@ function extractGalleryImages(html: string): string[] {
     }
   }
 
-  // Strategy 3: Extract individual image URLs from patterns like "imageUrl":"//ae01..."
   const singleImageRegex = /"(?:imageUrl|imagePath|imgUrl|originalImg)"\s*:\s*"([^"]+alicdn\.com[^"]+)"/g;
   while ((match = singleImageRegex.exec(html)) !== null) {
     addImage(match[1]);
   }
 
-  // Strategy 4: Find all alicdn.com product image URLs in the HTML
-  // These are typically high-res product photos in /kf/ paths
   const alicdnRegex = /(?:https?:)?\/\/[a-z0-9]+\.alicdn\.com\/kf\/[A-Za-z0-9_\-./]+\.(?:jpg|jpeg|png|webp)/gi;
   while ((match = alicdnRegex.exec(html)) !== null) {
     addImage(match[0]);
   }
 
   return images;
+}
+
+/**
+ * Extract AliExpress product ID from any AliExpress URL.
+ */
+function extractAliExpressProductId(url: string): string | null {
+  // Pattern: /item/1005008976990685.html or /item/1005008976990685
+  const match = /\/item\/(\d+)/i.exec(url);
+  if (match) return match[1];
+  // Pattern: productId=1005008976990685
+  const paramMatch = /productId=(\d+)/i.exec(url);
+  if (paramMatch) return paramMatch[1];
+  return null;
+}
+
+/**
+ * Normalize AliExpress URL to the global English version (better for scraping).
+ */
+function normalizeAliExpressUrl(url: string): string {
+  const productId = extractAliExpressProductId(url);
+  if (productId) {
+    return `https://www.aliexpress.com/item/${productId}.html`;
+  }
+  // Fallback: replace locale subdomain with www
+  try {
+    const parsed = new URL(url);
+    parsed.hostname = "www.aliexpress.com";
+    // Remove tracking params
+    parsed.search = "";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function resolveUrl(url: string, baseUrl: string): string {
@@ -302,6 +299,41 @@ function resolveUrl(url: string, baseUrl: string): string {
     }
   }
   return url;
+}
+
+/**
+ * Extract price from AliExpress HTML page data.
+ */
+function extractAliExpressPrice(html: string): number | null {
+  // Strategy 1: "formattedActivityPrice":"US $X.XX"
+  const activityMatch = /"formattedActivityPrice"\s*:\s*"[^"]*?([\d.]+)"/i.exec(html);
+  if (activityMatch?.[1]) {
+    const p = parseFloat(activityMatch[1]);
+    if (p > 0) return p;
+  }
+
+  // Strategy 2: "minPrice":"X.XX" or "minAmount":{"value":X.XX}
+  const minPriceMatch = /"(?:minPrice|min_price)"\s*:\s*"?([\d.]+)"?/i.exec(html);
+  if (minPriceMatch?.[1]) {
+    const p = parseFloat(minPriceMatch[1]);
+    if (p > 0) return p;
+  }
+
+  // Strategy 3: "price":{"value":"X.XX"} or "salePrice":{"value":"X.XX"}
+  const priceValueMatch = /"(?:price|salePrice)"\s*:\s*\{[^}]*"value"\s*:\s*"?([\d.]+)"?/i.exec(html);
+  if (priceValueMatch?.[1]) {
+    const p = parseFloat(priceValueMatch[1]);
+    if (p > 0) return p;
+  }
+
+  // Strategy 4: "discountPrice":{"minPrice":X.XX}
+  const discountMatch = /"discountPrice"\s*:\s*\{[^}]*"minPrice"\s*:\s*"?([\d.]+)"?/i.exec(html);
+  if (discountMatch?.[1]) {
+    const p = parseFloat(discountMatch[1]);
+    if (p > 0) return p;
+  }
+
+  return null;
 }
 
 export function isAliExpressUrl(url: string): boolean {
@@ -321,33 +353,82 @@ export async function scrapeAliExpressProduct(
     throw new Error("URL must be from aliexpress.com");
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  // Normalize to global English URL (ar.aliexpress.com → www.aliexpress.com)
+  const normalizedUrl = normalizeAliExpressUrl(url);
 
-  let html: string;
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8,fr;q=0.7",
-      },
-      redirect: "follow",
-    });
+  // Try multiple User-Agents — search engine bots get better HTML from AliExpress
+  const attempts = [
+    {
+      url: normalizedUrl,
+      ua: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    },
+    {
+      url: normalizedUrl,
+      ua: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    },
+    {
+      url: normalizedUrl,
+      ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    },
+    {
+      url: url, // Original URL as last resort
+      ua: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    },
+  ];
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch page: HTTP ${response.status}`);
+  let bestHtml = "";
+  let bestScore = 0;
+
+  for (const attempt of attempts) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(attempt.url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": attempt.ua,
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        redirect: "follow",
+      });
+
+      if (!response.ok) continue;
+
+      const html = await response.text();
+
+      // Score this response based on useful content
+      let score = 0;
+      if (html.includes("og:title")) score += 3;
+      if (html.includes("og:image")) score += 3;
+      if (html.includes("imagePathList")) score += 5;
+      if (html.includes("product-title")) score += 4;
+      if (html.includes('"subject"')) score += 4;
+      if (html.includes("ld+json")) score += 3;
+      if (html.includes("alicdn.com/kf/")) score += 2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestHtml = html;
+      }
+
+      // Good enough — stop trying
+      if (score >= 8) break;
+    } catch {
+      // Try next attempt
+    } finally {
+      clearTimeout(timeout);
     }
-
-    html = await response.text();
-  } finally {
-    clearTimeout(timeout);
   }
 
-  // 1. Extract directly from AliExpress DOM (highest priority — cleanest data)
+  if (!bestHtml) {
+    throw new Error("Failed to fetch AliExpress page. The page may be unavailable.");
+  }
+
+  const html = bestHtml;
+
+  // 1. Extract directly from AliExpress DOM
   const dom = extractAliExpressDom(html);
 
   // 2. Try JSON-LD
@@ -356,23 +437,26 @@ export async function scrapeAliExpressProduct(
   // 3. Try Open Graph
   const og = extractOpenGraph(html);
 
-  // 4. Fallback (<title> tag, <meta description>)
+  // 4. Fallback
   const fallback = extractFallback(html);
 
-  // 5. Extract gallery images from embedded JS data
+  // 5. Extract gallery images
   const galleryImages = extractGalleryImages(html);
+
+  // 6. Extract price
+  const price = jsonLd.price || extractAliExpressPrice(html);
 
   // Merge results with priority: DOM > JSON-LD > OG > Fallback
   const title = dom.title || jsonLd.title || og.title || fallback.title;
   const description = dom.description || jsonLd.description || og.description || fallback.description;
   const siteName = og.siteName || "AliExpress";
 
-  // Merge & deduplicate images: gallery first (most complete), then JSON-LD, then OG
+  // Merge & deduplicate images: gallery first, then JSON-LD, then OG
   const allImages = [...galleryImages, ...jsonLd.images, ...og.images];
   const seen = new Set<string>();
   const images: string[] = [];
   for (const img of allImages) {
-    const resolved = resolveUrl(img, url);
+    const resolved = resolveUrl(img, normalizedUrl);
     if (!seen.has(resolved) && resolved.startsWith("http")) {
       seen.add(resolved);
       images.push(resolved);
@@ -380,7 +464,7 @@ export async function scrapeAliExpressProduct(
     if (images.length >= 10) break;
   }
 
-  return { title, description, images, siteName, price: null };
+  return { title, description, images, siteName, price };
 }
 
 export function isFacebookMarketplaceUrl(url: string): boolean {
@@ -394,10 +478,6 @@ export function isFacebookMarketplaceUrl(url: string): boolean {
   }
 }
 
-/**
- * Extract price from Facebook Marketplace description or page content.
- * Facebook often embeds price as "DZD 5,000", "DA 5000", "5 000 DA", etc.
- */
 function extractFacebookPrice(text: string): number | null {
   if (!text) return null;
 
@@ -422,10 +502,6 @@ function extractFacebookPrice(text: string): number | null {
   return null;
 }
 
-/**
- * Convert any Facebook URL variant to the mobile version (m.facebook.com)
- * which serves simpler HTML with OG meta tags more reliably.
- */
 function toMobileFacebookUrl(url: string): string {
   try {
     const parsed = new URL(url);
@@ -443,28 +519,23 @@ export async function scrapeFacebookProduct(
     throw new Error("URL must be from Facebook Marketplace");
   }
 
-  // Try multiple URL variants and User-Agents to get past Facebook's blocks
   const mobileUrl = toMobileFacebookUrl(url);
   const attempts = [
-    // 1. Mobile URL with Googlebot UA — Facebook serves OG tags to crawlers
     {
       url: mobileUrl,
       ua: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
     },
-    // 2. Mobile URL with Facebook crawler UA
     {
       url: mobileUrl,
       ua: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
     },
-    // 3. Mobile URL with normal mobile browser UA
     {
       url: mobileUrl,
-      ua: "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      ua: "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
     },
-    // 4. Original URL with desktop UA as last resort
     {
       url,
-      ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     },
   ];
 
@@ -480,8 +551,7 @@ export async function scrapeFacebookProduct(
         signal: controller.signal,
         headers: {
           "User-Agent": attempt.ua,
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "en-US,en;q=0.9,ar;q=0.8,fr;q=0.7",
         },
         redirect: "follow",
@@ -489,7 +559,6 @@ export async function scrapeFacebookProduct(
 
       if (response.ok) {
         html = await response.text();
-        // Check if we actually got useful content (has OG tags or title)
         if (html.includes("og:title") || html.includes("<title")) {
           break;
         }
@@ -506,21 +575,14 @@ export async function scrapeFacebookProduct(
     throw new Error(`Failed to fetch Facebook page: ${lastError}`);
   }
 
-  // 1. Try JSON-LD structured data (highest priority)
   const jsonLd = extractJsonLd(html);
-
-  // 2. Try Open Graph meta tags
   const og = extractOpenGraph(html);
-
-  // 3. Fallback to <title> and <meta description>
   const fallback = extractFallback(html);
 
-  // Merge with priority: JSON-LD > OG > Fallback
   let title = jsonLd.title || og.title || fallback.title;
   const description = jsonLd.description || og.description || fallback.description;
   const siteName = "Facebook Marketplace";
 
-  // Clean Facebook-specific title suffixes
   if (title) {
     title = title
       .replace(/\s*[|\-–—]\s*Facebook\s*(?:Marketplace)?.*$/i, "")
@@ -528,7 +590,6 @@ export async function scrapeFacebookProduct(
       .trim() || title;
   }
 
-  // Merge & deduplicate images
   const allImages = [...jsonLd.images, ...og.images];
   const seen = new Set<string>();
   const images: string[] = [];
@@ -541,8 +602,7 @@ export async function scrapeFacebookProduct(
     if (images.length >= 10) break;
   }
 
-  // Extract price from description or page content
-  const price = extractFacebookPrice(og.description || "") ||
+  const price = jsonLd.price || extractFacebookPrice(og.description || "") ||
     extractFacebookPrice(fallback.description || "") ||
     extractFacebookPrice(html);
 
