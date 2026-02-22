@@ -19,7 +19,7 @@ export async function GET() {
   });
 
   return NextResponse.json(
-    users.map((u) => ({
+    users.map((u: { id: string; email: string; plan: string; tokenBalance: { balance: number } | null }) => ({
       id: u.id,
       email: u.email,
       plan: u.plan,
