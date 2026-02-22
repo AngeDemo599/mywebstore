@@ -275,7 +275,7 @@ export default function RegisterPage() {
           </Link>
         </p>
         <p className="mt-2 text-center text-[12px] text-d-text-muted">
-          <a href="/store/demo" className="hover:underline">{t("auth.viewDemoStore")}</a>
+          <Link href="/store/demo" className="hover:underline">{t("auth.viewDemoStore")}</Link>
         </p>
       </div>
     </div>

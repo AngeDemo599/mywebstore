@@ -30,7 +30,7 @@ export async function GET() {
     where: { ownerId: user.id },
     select: { id: true },
   });
-  const storeIds = userStores.map((s) => s.id);
+  const storeIds = userStores.map((s: (typeof userStores)[number]) => s.id);
 
   if (storeIds.length === 0) {
     return NextResponse.json({
@@ -145,26 +145,26 @@ export async function GET() {
 
   // Build byStatus map
   const byStatus: Record<string, number> = {};
-  ordersByStatus.forEach((o) => {
+  ordersByStatus.forEach((o: (typeof ordersByStatus)[number]) => {
     byStatus[o.status] = o._count;
   });
 
   // Get product titles for top products
-  const topProductIds = topProductsResult.map((p) => p.productId);
+  const topProductIds = topProductsResult.map((p: (typeof topProductsResult)[number]) => p.productId);
   const topProductDetails = topProductIds.length > 0
     ? await prisma.product.findMany({
         where: { id: { in: topProductIds } },
         select: { id: true, title: true },
       })
     : [];
-  const productMap = Object.fromEntries(topProductDetails.map((p) => [p.id, p.title]));
+  const productMap = Object.fromEntries(topProductDetails.map((p: (typeof topProductDetails)[number]) => [p.id, p.title]));
 
   const response: Record<string, unknown> = {
     products: {
       total: totalProducts,
       active: activeProducts,
       outOfStock: outOfStockProducts,
-      lowStockProducts: lowStockProducts.map((p) => ({
+      lowStockProducts: lowStockProducts.map((p: (typeof lowStockProducts)[number]) => ({
         id: p.id,
         title: p.title,
         stockQuantity: p.stockQuantity,
@@ -176,7 +176,7 @@ export async function GET() {
       todayCount: todayOrders,
       thisWeekCount: weekOrders,
       byStatus,
-      recentOrders: recentOrders.map((o) => ({
+      recentOrders: recentOrders.map((o: (typeof recentOrders)[number]) => ({
         id: o.id,
         status: o.status,
         quantity: o.quantity,
@@ -188,7 +188,7 @@ export async function GET() {
       deliveredCount: Number(revenueResult[0]?.count || 0),
       estimatedTotal: Math.round(Number(revenueResult[0]?.total || 0)),
     },
-    topProducts: topProductsResult.map((p) => ({
+    topProducts: topProductsResult.map((p: (typeof topProductsResult)[number]) => ({
       id: p.productId,
       title: productMap[p.productId] || "Unknown",
       orderCount: p._count,
@@ -248,7 +248,7 @@ export async function GET() {
         pageViews7d: views,
         uniqueVisitors7d: visitors,
         conversionRate,
-        dailyOrders: dailyOrders7d.map((d) => ({ date: d.date, count: Number(d.count) })),
+        dailyOrders: dailyOrders7d.map((d: (typeof dailyOrders7d)[number]) => ({ date: d.date, count: Number(d.count) })),
       };
     }
   }

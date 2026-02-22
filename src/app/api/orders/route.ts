@@ -31,7 +31,7 @@ export async function GET() {
   const effectivePlan = getEffectivePlan(user.plan, user.planExpiresAt);
 
   if (effectivePlan === "FREE") {
-    const result = orders.map((order) => {
+    const result = orders.map((order: (typeof orders)[number]) => {
       const isUnlocked = order.unlocks.length > 0;
       return {
         id: order.id,
@@ -51,7 +51,7 @@ export async function GET() {
   }
 
   // PRO users get all data with isUnlocked: true
-  const result = orders.map((order) => ({
+  const result = orders.map((order: (typeof orders)[number]) => ({
     id: order.id,
     name: order.name,
     phone: order.phone,

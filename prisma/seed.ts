@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -265,8 +265,8 @@ async function main() {
         category: product.category,
         shippingFee: product.shippingFee,
         images: product.images,
-        variations: product.variations ?? null,
-        promotions: product.promotions ?? null,
+        variations: product.variations ?? Prisma.DbNull,
+        promotions: product.promotions ?? Prisma.DbNull,
       },
       create: {
         title: product.title,
@@ -276,8 +276,8 @@ async function main() {
         slug: product.slug,
         shippingFee: product.shippingFee,
         images: product.images,
-        variations: product.variations ?? null,
-        promotions: product.promotions ?? null,
+        variations: product.variations ?? Prisma.DbNull,
+        promotions: product.promotions ?? Prisma.DbNull,
         storeId: demoStore.id,
       },
     });

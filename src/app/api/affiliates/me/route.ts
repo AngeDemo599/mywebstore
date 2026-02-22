@@ -116,13 +116,13 @@ export async function GET() {
         thisMonthEarnings,
         activeReferrals,
       },
-      referrals: referrals.map((r) => ({
+      referrals: referrals.map((r: (typeof referrals)[number]) => ({
         id: r.id,
         email: r.referred.email,
         status: r.status,
         createdAt: r.createdAt,
       })),
-      earnings: earnings.map((e) => ({
+      earnings: earnings.map((e: (typeof earnings)[number]) => ({
         id: e.id,
         amount: e.amount,
         description: e.description,

@@ -24,7 +24,7 @@ export async function GET() {
   });
 
   return NextResponse.json(
-    users.map((u) => ({
+    users.map((u: (typeof users)[number]) => ({
       ...u,
       tokens: u.tokenBalance?.balance ?? 0,
       tokenBalance: undefined,

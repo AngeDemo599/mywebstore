@@ -50,8 +50,8 @@ export async function GET(req: NextRequest) {
     select: { id: true },
   });
   const storeIds = storeId
-    ? userStores.filter((s) => s.id === storeId).map((s) => s.id)
-    : userStores.map((s) => s.id);
+    ? userStores.filter((s: (typeof userStores)[number]) => s.id === storeId).map((s: (typeof userStores)[number]) => s.id)
+    : userStores.map((s: (typeof userStores)[number]) => s.id);
 
   if (storeIds.length === 0) {
     return NextResponse.json({ access, data: null });
@@ -180,12 +180,12 @@ export async function GET(req: NextRequest) {
   ]);
 
   // Get product titles for top products
-  const productIds = topProducts.map((p) => p.productId);
+  const productIds = topProducts.map((p: (typeof topProducts)[number]) => p.productId);
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
     select: { id: true, title: true, slug: true },
   });
-  const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
+  const productMap = Object.fromEntries(products.map((p: (typeof products)[number]) => [p.id, p]));
 
   // Get per-product orders for conversion calculation
   const productOrders = await prisma.order.groupBy({
@@ -193,17 +193,17 @@ export async function GET(req: NextRequest) {
     where: { product: { storeId: { in: storeIds } }, createdAt: { gte: startDate } },
     _count: true,
   });
-  const ordersByProduct = Object.fromEntries(productOrders.map((o) => [o.productId, o._count]));
+  const ordersByProduct = Object.fromEntries(productOrders.map((o: (typeof productOrders)[number]) => [o.productId, o._count]));
 
   // Build event count map
   const eventCountMap: Record<string, number> = {};
-  eventCounts.forEach((e) => {
+  eventCounts.forEach((e: (typeof eventCounts)[number]) => {
     eventCountMap[e.eventType] = e._count;
   });
 
   // Build funnel
   const funnelMap: Record<string, number> = {};
-  funnelData.forEach((f) => {
+  funnelData.forEach((f: (typeof funnelData)[number]) => {
     funnelMap[f.eventType] = Number(f.unique_visitors);
   });
 
@@ -267,9 +267,9 @@ export async function GET(req: NextRequest) {
         formStarted: funnelMap["FORM_START"] || 0,
         formSubmitted: funnelMap["FORM_SUBMIT"] || 0,
       },
-      dailyViews: dailyViews.map((d) => ({ date: d.date, count: Number(d.count) })),
-      dailyOrders: dailyOrders.map((d) => ({ date: d.date, count: Number(d.count) })),
-      topProducts: topProducts.map((p) => ({
+      dailyViews: dailyViews.map((d: (typeof dailyViews)[number]) => ({ date: d.date, count: Number(d.count) })),
+      dailyOrders: dailyOrders.map((d: (typeof dailyOrders)[number]) => ({ date: d.date, count: Number(d.count) })),
+      topProducts: topProducts.map((p: (typeof topProducts)[number]) => ({
         productId: p.productId,
         title: productMap[p.productId]?.title || "Unknown",
         slug: productMap[p.productId]?.slug || "",
@@ -277,9 +277,9 @@ export async function GET(req: NextRequest) {
         orders: ordersByProduct[p.productId] || 0,
         conversionRate: p._count > 0 ? (((ordersByProduct[p.productId] || 0) / p._count) * 100).toFixed(1) : "0",
       })),
-      devices: deviceBreakdown.map((d) => ({ type: d.deviceType || "unknown", count: d._count })),
-      browsers: browserBreakdown.map((b) => ({ name: b.browser || "unknown", count: b._count })),
-      referrers: referrerBreakdown.map((r) => {
+      devices: deviceBreakdown.map((d: (typeof deviceBreakdown)[number]) => ({ type: d.deviceType || "unknown", count: d._count })),
+      browsers: browserBreakdown.map((b: (typeof browserBreakdown)[number]) => ({ name: b.browser || "unknown", count: b._count })),
+      referrers: referrerBreakdown.map((r: (typeof referrerBreakdown)[number]) => {
         // Extract domain from referrer URL
         let domain = r.referrer || "Direct";
         try {
@@ -289,14 +289,14 @@ export async function GET(req: NextRequest) {
         } catch { /* keep original */ }
         return { source: domain, count: r._count };
       }),
-      utmCampaigns: utmBreakdown.map((u) => ({
+      utmCampaigns: utmBreakdown.map((u: (typeof utmBreakdown)[number]) => ({
         source: u.utmSource || "unknown",
         campaign: u.utmCampaign || "(none)",
         count: u._count,
       })),
-      geographic: wilayaBreakdown.map((w) => ({ wilaya: w.wilaya || "unknown", count: w._count })),
-      hourly: hourlyBreakdown.map((h) => ({ hour: Number(h.hour), count: Number(h.count) })),
-      dayOfWeek: dayOfWeekBreakdown.map((d) => ({ day: Number(d.dow), count: Number(d.count) })),
+      geographic: wilayaBreakdown.map((w: (typeof wilayaBreakdown)[number]) => ({ wilaya: w.wilaya || "unknown", count: w._count })),
+      hourly: hourlyBreakdown.map((h: (typeof hourlyBreakdown)[number]) => ({ hour: Number(h.hour), count: Number(h.count) })),
+      dayOfWeek: dayOfWeekBreakdown.map((d: (typeof dayOfWeekBreakdown)[number]) => ({ day: Number(d.dow), count: Number(d.count) })),
     },
   };
 
