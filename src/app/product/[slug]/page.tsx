@@ -9,9 +9,12 @@ import ShareButtons from "./share-buttons";
 import BottomOrderBanner from "./bottom-order-banner";
 import BlockRenderer from "@/components/block-renderer";
 import ProductAnalyticsTracker from "@/components/product-analytics-tracker";
+import MetaPixel from "@/components/meta-pixel";
+import MetaPixelViewContent from "./meta-pixel-view-content";
 import { formatPrice } from "@/lib/utils";
 import { getTranslator, getDirection, type Locale } from "@/i18n";
 import { isDemoStore } from "@/lib/demo";
+import AdBanner from "@/components/ad-banner";
 
 interface VariationOption {
   value: string;
@@ -47,7 +50,7 @@ export default async function PublicProductPage({
       store: {
         include: {
           products: {
-            where: { slug: { not: slug } },
+            where: { slug: { not: slug }, isActive: true },
             take: 4,
             orderBy: { createdAt: "desc" },
           },
@@ -57,6 +60,7 @@ export default async function PublicProductPage({
   });
 
   if (!product) notFound();
+  if (!product.isActive) notFound();
 
   const locale = (product.store.language === "fr" ? "fr" : "ar") as Locale;
   const t = getTranslator(locale);
@@ -95,6 +99,14 @@ export default async function PublicProductPage({
         <link rel="stylesheet" href={fontUrl} />
       )}
       <ProductAnalyticsTracker productId={product.id} storeId={product.storeId} />
+      <MetaPixel pixelId={product.store.metaPixelId} />
+      <MetaPixelViewContent
+        pixelId={product.store.metaPixelId}
+        contentName={product.title}
+        contentId={product.id}
+        contentCategory={product.category}
+        value={product.price}
+      />
       <div
         className="min-h-screen"
         style={{ ...styleToCSS(style), backgroundColor: style.colors.background, color: style.colors.text }}
@@ -208,10 +220,22 @@ export default async function PublicProductPage({
               {isNew && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">{t("public.new")}</span>
               )}
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                {t("public.inStock")}
-              </span>
+              {product.trackStock && product.stockQuantity === 0 ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  {t("public.outOfStock")}
+                </span>
+              ) : product.trackStock && product.stockQuantity <= product.lowStockThreshold ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  {t("public.lowStock")}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                  {t("public.inStock")}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center justify-between mt-3">
@@ -250,10 +274,22 @@ export default async function PublicProductPage({
                   {isNew && (
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">{t("public.new")}</span>
                   )}
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                    {t("public.inStock")}
-                  </span>
+                  {product.trackStock && product.stockQuantity === 0 ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      {t("public.outOfStock")}
+                    </span>
+                  ) : product.trackStock && product.stockQuantity <= product.lowStockThreshold ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      {t("public.lowStock")}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                      {t("public.inStock")}
+                    </span>
+                  )}
                   {variations.length > 0 && (
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       {variations.length} {variations.length === 1 ? t("public.option") : t("public.options")}
@@ -284,6 +320,9 @@ export default async function PublicProductPage({
                     shippingFee={product.shippingFee}
                     locale={locale}
                     isDemo={isDemo}
+                    metaPixelId={product.store.metaPixelId}
+                    trackStock={product.trackStock}
+                    stockQuantity={product.stockQuantity}
                   />
                 </div>
               </div>
@@ -318,10 +357,15 @@ export default async function PublicProductPage({
                   productTitle={product.title}
                   shippingFee={product.shippingFee}
                   isDemo={isDemo}
+                  metaPixelId={product.store.metaPixelId}
+                  trackStock={product.trackStock}
+                  stockQuantity={product.stockQuantity}
                 />
               </div>
             </div>
           </div>
+
+          <AdBanner slot="product-below" format="horizontal" className="mt-8" />
 
           {/* ─── Related Products ─── */}
           {relatedProducts.length > 0 && (

@@ -104,7 +104,7 @@ function FunnelStep({
     <div className="flex-1">
       <div className="relative h-16 rounded-lg overflow-hidden" style={{ backgroundColor: color + "15" }}>
         <div
-          className="absolute inset-y-0 left-0 rounded-lg transition-all duration-500"
+          className="absolute inset-y-0 start-0 rounded-lg transition-all duration-500"
           style={{ width: `${Math.max(percentage, 2)}%`, backgroundColor: color + "40" }}
         />
         <div className="relative z-10 h-full flex flex-col items-center justify-center">
@@ -307,17 +307,17 @@ export default function AnalyticsDashboard() {
       {/* Trial banner */}
       {access.reason === "trial" && (
         <div
-          className={`rounded-xl p-4 mb-6 flex items-center justify-between ${
+          className={`rounded-xl p-3 sm:p-4 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
             access.trialDaysLeft <= 2
               ? "bg-red-50 border border-red-200"
               : "bg-blue-50 border border-blue-200"
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <BarChart3
-              className={`w-5 h-5 ${access.trialDaysLeft <= 2 ? "text-red-600" : "text-blue-600"}`}
+              className={`w-5 h-5 flex-shrink-0 ${access.trialDaysLeft <= 2 ? "text-red-600" : "text-blue-600"}`}
             />
-            <div>
+            <div className="min-w-0">
               <p
                 className={`text-sm font-semibold ${
                   access.trialDaysLeft <= 2 ? "text-red-800" : "text-blue-800"
@@ -328,7 +328,7 @@ export default function AnalyticsDashboard() {
                   : `${t("analytics.trialDaysLeft")} ${access.trialDaysLeft} ${t("analytics.daysRemaining")}`}
               </p>
               <p
-                className={`text-xs ${
+                className={`text-xs hidden sm:block ${
                   access.trialDaysLeft <= 2 ? "text-red-600" : "text-blue-600"
                 }`}
               >
@@ -340,7 +340,7 @@ export default function AnalyticsDashboard() {
           </div>
           <Link
             href="/dashboard/upgrade"
-            className={`px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors ${
+            className={`px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors flex-shrink-0 ${
               access.trialDaysLeft <= 2
                 ? "bg-red-600 hover:bg-red-700"
                 : "bg-blue-600 hover:bg-blue-700"
@@ -371,7 +371,7 @@ export default function AnalyticsDashboard() {
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
-            className="appearance-none bg-d-surface border border-d-border rounded-lg px-4 py-2 pr-9 text-sm font-medium text-d-text focus:outline-none focus:ring-1 focus:ring-d-link cursor-pointer"
+            className="appearance-none bg-d-surface border border-d-border rounded-lg px-4 py-2 pe-9 text-sm font-medium text-d-text focus:outline-none focus:ring-1 focus:ring-d-link cursor-pointer"
           >
             <option value="7d">{t("analytics.last7days")}</option>
             <option value="30d">{t("analytics.last30days")}</option>
@@ -414,49 +414,46 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Conversion Funnel */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5 mb-6">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5 mb-6">
         <h2 className="text-base font-semibold text-d-text mb-4">{t("analytics.conversionFunnel")}</h2>
         {(funnel?.pageViews || 0) > 0 ? (
-          <div className="flex gap-2">
-            <FunnelStep
-              label={t("analytics.viewedPage")}
-              value={funnel?.pageViews || 0}
-              percentage={100}
-              color="#2563eb"
-            />
-            <FunnelStep
-              label={t("analytics.scrolled")}
-              value={funnel?.scrolled || 0}
-              percentage={((funnel?.scrolled || 0) / funnelBase) * 100}
-              color="#3b82f6"
-            />
-            <FunnelStep
-              label={t("analytics.sawForm")}
-              value={funnel?.formViewed || 0}
-              percentage={((funnel?.formViewed || 0) / funnelBase) * 100}
-              color="#f59e0b"
-            />
-            <FunnelStep
-              label={t("analytics.startedForm")}
-              value={funnel?.formStarted || 0}
-              percentage={((funnel?.formStarted || 0) / funnelBase) * 100}
-              color="#ea580c"
-            />
-            <FunnelStep
-              label={t("analytics.ordered")}
-              value={funnel?.formSubmitted || 0}
-              percentage={((funnel?.formSubmitted || 0) / funnelBase) * 100}
-              color="#16a34a"
-              isLast
-            />
-          </div>
+          <>
+            {/* Desktop: horizontal funnel */}
+            <div className="hidden sm:flex gap-2">
+              <FunnelStep label={t("analytics.viewedPage")} value={funnel?.pageViews || 0} percentage={100} color="#2563eb" />
+              <FunnelStep label={t("analytics.scrolled")} value={funnel?.scrolled || 0} percentage={((funnel?.scrolled || 0) / funnelBase) * 100} color="#3b82f6" />
+              <FunnelStep label={t("analytics.sawForm")} value={funnel?.formViewed || 0} percentage={((funnel?.formViewed || 0) / funnelBase) * 100} color="#f59e0b" />
+              <FunnelStep label={t("analytics.startedForm")} value={funnel?.formStarted || 0} percentage={((funnel?.formStarted || 0) / funnelBase) * 100} color="#ea580c" />
+              <FunnelStep label={t("analytics.ordered")} value={funnel?.formSubmitted || 0} percentage={((funnel?.formSubmitted || 0) / funnelBase) * 100} color="#16a34a" isLast />
+            </div>
+            {/* Mobile: vertical funnel list */}
+            <div className="sm:hidden space-y-2">
+              {[
+                { label: t("analytics.viewedPage"), value: funnel?.pageViews || 0, pct: 100, color: "#2563eb" },
+                { label: t("analytics.scrolled"), value: funnel?.scrolled || 0, pct: ((funnel?.scrolled || 0) / funnelBase) * 100, color: "#3b82f6" },
+                { label: t("analytics.sawForm"), value: funnel?.formViewed || 0, pct: ((funnel?.formViewed || 0) / funnelBase) * 100, color: "#f59e0b" },
+                { label: t("analytics.startedForm"), value: funnel?.formStarted || 0, pct: ((funnel?.formStarted || 0) / funnelBase) * 100, color: "#ea580c" },
+                { label: t("analytics.ordered"), value: funnel?.formSubmitted || 0, pct: ((funnel?.formSubmitted || 0) / funnelBase) * 100, color: "#16a34a" },
+              ].map((step) => (
+                <div key={step.label} className="flex items-center gap-3">
+                  <div className="w-20 text-xs font-medium text-d-text-sub truncate">{step.label}</div>
+                  <div className="flex-1 h-6 rounded-md overflow-hidden" style={{ backgroundColor: step.color + "15" }}>
+                    <div className="h-full rounded-md transition-all flex items-center px-2" style={{ width: `${Math.max(step.pct, 5)}%`, backgroundColor: step.color + "40" }}>
+                      <span className="text-[11px] font-bold whitespace-nowrap" style={{ color: step.color }}>{step.value.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-d-text-sub w-10 text-end">{step.pct.toFixed(0)}%</span>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <p className="text-sm text-d-text-muted text-center py-8">{t("analytics.viewsAppear")}</p>
         )}
       </div>
 
       {/* Views & Orders Over Time */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2 mb-6">
         <div className="bg-d-surface rounded-xl shadow-card p-5">
           <h2 className="text-base font-semibold text-d-text mb-1">{t("analytics.pageViews")}</h2>
           <p className="text-[11px] text-d-text-muted mb-4">{t("analytics.dailyPageViewsDesc")}</p>
@@ -491,57 +488,64 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Product Rankings */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5 mb-6">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5 mb-6">
         <h2 className="text-base font-semibold text-d-text mb-4">{t("analytics.productRankings")}</h2>
         {(data?.topProducts || []).length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-d-text-sub border-b border-d-border">
-                  <th className="pb-2 font-medium">{t("common.products")}</th>
-                  <th className="pb-2 font-medium text-right">{t("analytics.views")}</th>
-                  <th className="pb-2 font-medium text-right">{t("analytics.orders")}</th>
-                  <th className="pb-2 font-medium text-right">{t("analytics.conversion")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.topProducts || []).map((p, i) => (
-                  <tr key={p.productId} className="border-b border-d-border last:border-0">
-                    <td className="py-2.5">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded bg-d-surface-secondary flex items-center justify-center text-[11px] font-bold text-d-text-sub">
-                          {i + 1}
-                        </span>
-                        <span className="font-medium text-d-text truncate max-w-[200px]">{p.title}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 text-right text-d-text">{p.views.toLocaleString()}</td>
-                    <td className="py-2.5 text-right text-d-text">{p.orders}</td>
-                    <td className="py-2.5 text-right">
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
-                          parseFloat(p.conversionRate) >= 5
-                            ? "bg-green-100 text-green-700"
-                            : parseFloat(p.conversionRate) >= 2
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-d-surface-secondary text-d-text-sub"
-                        }`}
-                      >
-                        {p.conversionRate}%
-                      </span>
-                    </td>
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-start text-d-text-sub border-b border-d-border">
+                    <th className="pb-2 font-medium">{t("common.products")}</th>
+                    <th className="pb-2 font-medium text-end">{t("analytics.views")}</th>
+                    <th className="pb-2 font-medium text-end">{t("analytics.orders")}</th>
+                    <th className="pb-2 font-medium text-end">{t("analytics.conversion")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {(data?.topProducts || []).map((p, i) => (
+                    <tr key={p.productId} className="border-b border-d-border last:border-0">
+                      <td className="py-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded bg-d-surface-secondary flex items-center justify-center text-[11px] font-bold text-d-text-sub">{i + 1}</span>
+                          <span className="font-medium text-d-text truncate max-w-[200px]">{p.title}</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-end text-d-text">{p.views.toLocaleString()}</td>
+                      <td className="py-2.5 text-end text-d-text">{p.orders}</td>
+                      <td className="py-2.5 text-end">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${parseFloat(p.conversionRate) >= 5 ? "bg-green-100 text-green-700" : parseFloat(p.conversionRate) >= 2 ? "bg-amber-100 text-amber-700" : "bg-d-surface-secondary text-d-text-sub"}`}>{p.conversionRate}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Mobile cards */}
+            <div className="sm:hidden space-y-2.5">
+              {(data?.topProducts || []).map((p, i) => (
+                <div key={p.productId} className="p-3 rounded-lg bg-d-surface-secondary">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-5 h-5 rounded bg-d-surface flex items-center justify-center text-[11px] font-bold text-d-text-sub">{i + 1}</span>
+                    <span className="text-sm font-medium text-d-text truncate flex-1">{p.title}</span>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold ${parseFloat(p.conversionRate) >= 5 ? "bg-green-100 text-green-700" : parseFloat(p.conversionRate) >= 2 ? "bg-amber-100 text-amber-700" : "bg-d-surface text-d-text-sub"}`}>{p.conversionRate}%</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-d-text-sub">
+                    <span>{p.views.toLocaleString()} {t("analytics.views").toLowerCase()}</span>
+                    <span>{p.orders} {t("analytics.orders").toLowerCase()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <p className="text-sm text-d-text-muted text-center py-8">{t("analytics.noProductData")}</p>
         )}
       </div>
 
       {/* Traffic Sources & Geographic */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2 mb-6">
         {/* Traffic Sources */}
         <div className="bg-d-surface rounded-xl shadow-card p-5">
           <h2 className="text-base font-semibold text-d-text mb-4">{t("analytics.trafficSources")}</h2>
@@ -617,9 +621,9 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Behavior Metrics */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5 mb-6">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5 mb-6">
         <h2 className="text-base font-semibold text-d-text mb-4">{t("analytics.behaviorMetrics")}</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <div className="text-center p-4 bg-d-surface-secondary rounded-xl">
             <p className="text-2xl font-bold text-d-text">{scrollRate}%</p>
             <p className="text-xs text-d-text-sub mt-1">{t("analytics.scrollPast50Label")}</p>
@@ -640,7 +644,7 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Device & Time */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 mb-6">
         {/* Device Breakdown */}
         <div className="bg-d-surface rounded-xl shadow-card p-5">
           <h2 className="text-base font-semibold text-d-text mb-4">{t("analytics.devices")}</h2>
@@ -663,7 +667,7 @@ export default function AnalyticsDashboard() {
                         style={{ width: `${(d.count / deviceTotal) * 100}%` }}
                       />
                     </div>
-                    <span className="text-xs text-d-text-sub w-10 text-right">
+                    <span className="text-xs text-d-text-sub w-10 text-end">
                       {((d.count / deviceTotal) * 100).toFixed(0)}%
                     </span>
                   </div>

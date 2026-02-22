@@ -8,8 +8,8 @@ import {
   unauthorized,
   badRequest,
   forbidden,
-  PLAN_LIMITS,
 } from "@/lib/auth-helpers";
+import { getAppConfig } from "@/lib/app-config";
 
 export async function GET() {
   try {
@@ -37,17 +37,18 @@ export async function POST(req: NextRequest) {
     const user = await getAuthenticatedUser();
     if (!user) return unauthorized();
 
-    const plan = getEffectivePlan(user.plan, user.planExpiresAt) as keyof typeof PLAN_LIMITS;
-    const limits = PLAN_LIMITS[plan];
+    const cfg = await getAppConfig();
+    const plan = getEffectivePlan(user.plan, user.planExpiresAt);
+    const limits = plan === "PRO" ? cfg.planLimits.pro : cfg.planLimits.free;
     const currentCount = await getProductCount(user.id);
 
     if (currentCount >= limits.maxProducts) {
       return forbidden(
-        `You have reached the limit of ${limits.maxProducts} product(s) on the ${plan} plan. Upgrade to PRO (5000 DA/month) to unlock more stores, products, and orders.`
+        `You have reached the limit of ${limits.maxProducts} product(s) on the ${plan} plan. Upgrade to PRO (${cfg.subscriptionPrices.monthly} DA/month) to unlock more stores, products, and orders.`
       );
     }
 
-    const { title, description, price, images, storeId, variations, promotions, category, contentBlocks, shippingFee } = await req.json();
+    const { title, description, price, images, storeId, variations, promotions, category, contentBlocks, shippingFee, isActive, trackStock, valuationMethod } = await req.json();
 
     if (!storeId) return badRequest("Store is required");
 
@@ -88,6 +89,9 @@ export async function POST(req: NextRequest) {
         ...(promotions && Array.isArray(promotions) ? { promotions } : {}),
         ...(contentBlocks && Array.isArray(contentBlocks) ? { contentBlocks } : {}),
         ...(shippingFee !== undefined && { shippingFee: shippingFee ? parseFloat(shippingFee) : null }),
+        ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+        ...(trackStock !== undefined && { trackStock: Boolean(trackStock) }),
+        ...(valuationMethod && ["PMP", "FIFO", "LIFO"].includes(valuationMethod) ? { valuationMethod } : {}),
       },
     });
 

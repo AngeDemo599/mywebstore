@@ -3,6 +3,7 @@ export interface ScrapedProduct {
   description: string | null;
   images: string[];
   siteName: string | null;
+  price: number | null;
 }
 
 function decodeHtmlEntities(text: string): string {
@@ -379,5 +380,171 @@ export async function scrapeAliExpressProduct(
     if (images.length >= 10) break;
   }
 
-  return { title, description, images, siteName };
+  return { title, description, images, siteName, price: null };
+}
+
+export function isFacebookMarketplaceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const validHosts = /^(www\.|m\.|web\.)?facebook\.com$|^fb\.com$/i;
+    if (!validHosts.test(parsed.hostname)) return false;
+    return /\/marketplace\/item\//i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extract price from Facebook Marketplace description or page content.
+ * Facebook often embeds price as "DZD 5,000", "DA 5000", "5 000 DA", etc.
+ */
+function extractFacebookPrice(text: string): number | null {
+  if (!text) return null;
+
+  const patterns = [
+    /DZD\s*([\d\s,.]+)/i,
+    /DA\s*([\d\s,.]+)/i,
+    /([\d\s,.]+)\s*DZD/i,
+    /([\d\s,.]+)\s*DA\b/i,
+    /([\d\s,.]+)\s*دج/,
+    /(?:price|prix)[:\s]*([\d\s,.]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (match?.[1]) {
+      const cleaned = match[1].replace(/[\s,]/g, "").replace(/\.(?=\d{3})/g, "");
+      const value = parseFloat(cleaned);
+      if (value > 0 && value < 100_000_000) return value;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Convert any Facebook URL variant to the mobile version (m.facebook.com)
+ * which serves simpler HTML with OG meta tags more reliably.
+ */
+function toMobileFacebookUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hostname = "m.facebook.com";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+export async function scrapeFacebookProduct(
+  url: string
+): Promise<ScrapedProduct> {
+  if (!isFacebookMarketplaceUrl(url)) {
+    throw new Error("URL must be from Facebook Marketplace");
+  }
+
+  // Try multiple URL variants and User-Agents to get past Facebook's blocks
+  const mobileUrl = toMobileFacebookUrl(url);
+  const attempts = [
+    // 1. Mobile URL with Googlebot UA — Facebook serves OG tags to crawlers
+    {
+      url: mobileUrl,
+      ua: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+    },
+    // 2. Mobile URL with Facebook crawler UA
+    {
+      url: mobileUrl,
+      ua: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+    },
+    // 3. Mobile URL with normal mobile browser UA
+    {
+      url: mobileUrl,
+      ua: "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    },
+    // 4. Original URL with desktop UA as last resort
+    {
+      url,
+      ua: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  ];
+
+  let html = "";
+  let lastError: string | null = null;
+
+  for (const attempt of attempts) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch(attempt.url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": attempt.ua,
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9,ar;q=0.8,fr;q=0.7",
+        },
+        redirect: "follow",
+      });
+
+      if (response.ok) {
+        html = await response.text();
+        // Check if we actually got useful content (has OG tags or title)
+        if (html.includes("og:title") || html.includes("<title")) {
+          break;
+        }
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : "Fetch failed";
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  if (!html) {
+    throw new Error(`Failed to fetch Facebook page: ${lastError}`);
+  }
+
+  // 1. Try JSON-LD structured data (highest priority)
+  const jsonLd = extractJsonLd(html);
+
+  // 2. Try Open Graph meta tags
+  const og = extractOpenGraph(html);
+
+  // 3. Fallback to <title> and <meta description>
+  const fallback = extractFallback(html);
+
+  // Merge with priority: JSON-LD > OG > Fallback
+  let title = jsonLd.title || og.title || fallback.title;
+  const description = jsonLd.description || og.description || fallback.description;
+  const siteName = "Facebook Marketplace";
+
+  // Clean Facebook-specific title suffixes
+  if (title) {
+    title = title
+      .replace(/\s*[|\-–—]\s*Facebook\s*(?:Marketplace)?.*$/i, "")
+      .replace(/\s*Facebook\s*(?:Marketplace)?\s*$/i, "")
+      .trim() || title;
+  }
+
+  // Merge & deduplicate images
+  const allImages = [...jsonLd.images, ...og.images];
+  const seen = new Set<string>();
+  const images: string[] = [];
+  for (const img of allImages) {
+    const resolved = resolveUrl(img, url);
+    if (!seen.has(resolved) && resolved.startsWith("http")) {
+      seen.add(resolved);
+      images.push(resolved);
+    }
+    if (images.length >= 10) break;
+  }
+
+  // Extract price from description or page content
+  const price = extractFacebookPrice(og.description || "") ||
+    extractFacebookPrice(fallback.description || "") ||
+    extractFacebookPrice(html);
+
+  return { title, description, images, siteName, price };
 }

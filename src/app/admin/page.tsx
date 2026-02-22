@@ -13,9 +13,11 @@ import {
   ChevronsUpDown,
   Coins,
   X,
+  Settings,
 } from "lucide-react";
 import { StyledButton } from "@/components/styled-button";
 import { useTranslation } from "@/components/language-provider";
+import { useToast } from "@/components/toast";
 
 interface User {
   id: string;
@@ -63,10 +65,31 @@ interface TokenPurchase {
   };
 }
 
-const PRICES: Record<string, number> = { MONTHLY: 5000, YEARLY: 50000 };
 const ITEMS_PER_PAGE = 8;
 
-type TabType = "users" | "upgrades" | "token-purchases" | "tokens";
+type TabType = "users" | "upgrades" | "token-purchases" | "tokens" | "settings";
+
+interface AppConfigData {
+  subscriptionPrices: { monthly: number; yearly: number };
+  tokenPacks: {
+    small: { tokens: number; priceDA: number };
+    medium: { tokens: number; priceDA: number };
+    large: { tokens: number; priceDA: number };
+  };
+  tokenPacksPro: {
+    small: { tokens: number };
+    medium: { tokens: number };
+    large: { tokens: number };
+  };
+  proBonusTokens: number;
+  referralBonusTokens: number;
+  orderUnlockCost: number;
+  planLimits: { free: { maxProducts: number }; pro: { maxProducts: number } };
+  adFreePacks: {
+    week: { days: number; cost: number };
+    month: { days: number; cost: number };
+  };
+}
 
 
 function formatExpiry(expiresAt: string | null, t: (key: string) => string): string | null {
@@ -82,6 +105,7 @@ function formatExpiry(expiresAt: string | null, t: (key: string) => string): str
 
 export default function AdminPage() {
   const { t } = useTranslation();
+  const { success: toastSuccess, error: toastError } = useToast();
   const { data: session, status } = useSession();
   const router = useRouter();
   const [tab, setTab] = useState<TabType>("users");
@@ -109,6 +133,11 @@ export default function AdminPage() {
   // Token purchase reject modal
   const [tpRejectId, setTpRejectId] = useState<string | null>(null);
   const [tpRejectReason, setTpRejectReason] = useState("");
+
+  // Settings state
+  const [configData, setConfigData] = useState<AppConfigData | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const isAdmin =
     status === "authenticated" && session?.user?.role === "ADMIN";
@@ -146,6 +175,59 @@ export default function AdminPage() {
     };
   }, [status, isAdmin, router]);
 
+  // Fetch config when settings tab is selected
+  useEffect(() => {
+    if (tab !== "settings" || configData) return;
+    let cancelled = false;
+    setConfigLoading(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/config");
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled && data) setConfigData(data);
+      } catch { /* ignore */ }
+      if (!cancelled) setConfigLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [tab, configData]);
+
+  const saveConfig = useCallback(async () => {
+    if (!configData) return;
+    setConfigSaving(true);
+    try {
+      const res = await fetch("/api/admin/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configData),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setConfigData(updated);
+        toastSuccess(t("admin.settingsSaved"));
+      } else {
+        const err = await res.json();
+        toastError(err.error || t("admin.settingsSaveFailed"));
+      }
+    } catch {
+      toastError(t("admin.settingsSaveFailed"));
+    }
+    setConfigSaving(false);
+  }, [configData, toastSuccess, toastError, t]);
+
+  const updateConfigField = useCallback((path: string, value: number) => {
+    setConfigData((prev) => {
+      if (!prev) return prev;
+      const updated = JSON.parse(JSON.stringify(prev));
+      const keys = path.split(".");
+      let obj = updated;
+      for (let i = 0; i < keys.length - 1; i++) {
+        obj = obj[keys[i]];
+      }
+      obj[keys[keys.length - 1]] = value;
+      return updated;
+    });
+  }, []);
+
   const togglePlan = useCallback(async (userId: string) => {
     setToggling(userId);
     const res = await fetch("/api/admin/users", {
@@ -163,6 +245,9 @@ export default function AdminPage() {
             : u
         )
       );
+      toastSuccess(t("toast.planSwitched"), `→ ${updated.plan}`, "upgrade");
+    } else {
+      toastError(t("toast.planSwitchFailed"));
     }
     setToggling(null);
   }, []);
@@ -199,6 +284,9 @@ export default function AdminPage() {
               )
             );
           }
+          toastSuccess(t("toast.upgradeApproved"), undefined, "upgrade");
+        } else {
+          toastSuccess(t("toast.upgradeRejected"), undefined, "upgrade");
         }
       }
       setReviewing(null);
@@ -233,6 +321,9 @@ export default function AdminPage() {
                 : u
             )
           );
+          toastSuccess(t("toast.tokenPurchaseApproved"), `+${updated.tokens} tokens`, "upgrade");
+        } else {
+          toastSuccess(t("toast.tokenPurchaseRejected"), undefined, "upgrade");
         }
       }
       setReviewing(null);
@@ -266,9 +357,12 @@ export default function AdminPage() {
       setTokenModal(null);
       setTokenAmount("");
       setTokenDescription("");
+      toastSuccess(t("toast.tokenAdjusted"), `${tokenModal.email}: ${parseInt(tokenAmount) > 0 ? "+" : ""}${tokenAmount}`);
+    } else {
+      toastError(t("toast.tokenAdjustFailed"));
     }
     setTokenSubmitting(false);
-  }, [tokenModal, tokenAmount, tokenDescription]);
+  }, [tokenModal, tokenAmount, tokenDescription, toastSuccess, toastError, t]);
 
   // Users filtering & sorting
   const filteredUsers = useMemo(() => {
@@ -399,10 +493,10 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="p-4 bg-d-surface rounded-xl shadow-card flex flex-col gap-6">
+    <div className="p-3 sm:p-4 bg-d-surface rounded-xl shadow-card flex flex-col gap-4 sm:gap-6">
       {/* Header */}
-      <div className="flex justify-between items-center gap-4">
-        <div className="w-full max-w-[500px] px-4 py-2 rounded-lg border border-d-input-border flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 sm:gap-4">
+        <div className="w-full sm:max-w-[500px] px-3 sm:px-4 py-2 rounded-lg border border-d-input-border flex items-center gap-2">
           <input
             type="text"
             value={searchQuery}
@@ -416,74 +510,153 @@ export default function AdminPage() {
           />
           <Search className="w-5 h-5 text-d-text flex-shrink-0" />
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <StyledButton variant="outline" size="sm">
-            <span className="flex items-center gap-1.5">
-              {t("common.filter")}
-              <SlidersHorizontal className="w-4 h-4" />
-            </span>
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <StyledButton variant="outline" size="sm" icon={<SlidersHorizontal className="w-4 h-4" />}>
+            <span className="hidden sm:inline">{t("common.filter")}</span>
           </StyledButton>
           {tab === "users" && (
-            <StyledButton variant="outline" size="sm" onClick={exportUsersCSV}>
-              <span className="flex items-center gap-1.5">
-                {t("common.export")}
-                <Download className="w-4 h-4" />
-              </span>
+            <StyledButton variant="outline" size="sm" icon={<Download className="w-4 h-4" />} onClick={exportUsersCSV}>
+              <span className="hidden sm:inline">{t("common.export")}</span>
             </StyledButton>
           )}
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="px-3 py-2 bg-d-surface rounded-xl border border-d-border flex items-center gap-2">
-        <button
-          onClick={() => setTabAndReset("users")}
-          className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors ${
-            tab === "users"
-              ? "bg-d-surface-tertiary text-d-text font-[550]"
-              : "text-d-text-sub hover:text-d-text"
-          }`}
-        >
-          {t("admin.users")} ({users.length})
-        </button>
-        <button
-          onClick={() => setTabAndReset("upgrades")}
-          className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors relative ${
-            tab === "upgrades"
-              ? "bg-d-surface-tertiary text-d-text font-[550]"
-              : "text-d-text-sub hover:text-d-text"
-          }`}
-        >
-          {t("admin.upgrades")}
-          {pendingUpgradeCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-              {pendingUpgradeCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTabAndReset("token-purchases")}
-          className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors relative ${
-            tab === "token-purchases"
-              ? "bg-d-surface-tertiary text-d-text font-[550]"
-              : "text-d-text-sub hover:text-d-text"
-          }`}
-        >
-          {t("admin.tokenPurchases")}
-          {pendingTokenPurchaseCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-              {pendingTokenPurchaseCount}
-            </span>
-          )}
-        </button>
+      <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="px-3 py-2 bg-d-surface rounded-xl border border-d-border flex items-center gap-2 min-w-max sm:min-w-0">
+          <button
+            onClick={() => setTabAndReset("users")}
+            className={`flex-1 px-2 sm:px-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-center transition-colors whitespace-nowrap ${
+              tab === "users"
+                ? "bg-d-surface-tertiary text-d-text font-[550]"
+                : "text-d-text-sub hover:text-d-text"
+            }`}
+          >
+            {t("admin.users")} ({users.length})
+          </button>
+          <button
+            onClick={() => setTabAndReset("upgrades")}
+            className={`flex-1 px-2 sm:px-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-center transition-colors relative whitespace-nowrap ${
+              tab === "upgrades"
+                ? "bg-d-surface-tertiary text-d-text font-[550]"
+                : "text-d-text-sub hover:text-d-text"
+            }`}
+          >
+            {t("admin.upgrades")}
+            {pendingUpgradeCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                {pendingUpgradeCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTabAndReset("token-purchases")}
+            className={`flex-1 px-2 sm:px-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-center transition-colors relative whitespace-nowrap ${
+              tab === "token-purchases"
+                ? "bg-d-surface-tertiary text-d-text font-[550]"
+                : "text-d-text-sub hover:text-d-text"
+            }`}
+          >
+            {t("admin.tokenPurchases")}
+            {pendingTokenPurchaseCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                {pendingTokenPurchaseCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setTabAndReset("settings")}
+            className={`flex-1 px-2 sm:px-1.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-center transition-colors whitespace-nowrap flex items-center justify-center gap-1 ${
+              tab === "settings"
+                ? "bg-d-surface-tertiary text-d-text font-[550]"
+                : "text-d-text-sub hover:text-d-text"
+            }`}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            {t("admin.settings")}
+          </button>
+        </div>
       </div>
 
       {/* Users Tab */}
       {tab === "users" && (
         <>
-          <div className="bg-d-surface rounded-xl shadow-card flex flex-col overflow-hidden">
+          {/* Mobile Cards */}
+          <div className="lg:hidden space-y-3">
+            {paginatedUsers.length === 0 ? (
+              <div className="p-8 text-center text-d-text-sub text-sm">
+                {t("admin.noUsersMatch")}
+              </div>
+            ) : (
+              paginatedUsers.map((user) => {
+                const expiry = formatExpiry(user.planExpiresAt, t);
+                return (
+                  <div key={user.id} className="bg-d-surface rounded-xl border border-d-border p-3.5 space-y-3">
+                    {/* Top: email + badges */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-d-text truncate">{user.email}</p>
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium ${user.role === "ADMIN" ? "bg-purple-100 text-purple-800" : "bg-d-surface-secondary text-d-text"}`}>
+                            {user.role}
+                          </span>
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-medium ${user.plan === "PRO" ? "bg-d-surface-secondary text-d-text" : "bg-d-surface-secondary text-d-text-sub"}`}>
+                            {user.plan}
+                          </span>
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(user.id)}
+                        onChange={() => toggleSelect(user.id)}
+                        className="w-4 h-4 rounded border-d-input-border text-d-text focus:ring-d-link cursor-pointer mt-0.5"
+                      />
+                    </div>
+
+                    {/* Info row */}
+                    <div className="flex items-center gap-3 text-xs text-d-text-sub">
+                      <button
+                        onClick={() => setTokenModal(user)}
+                        className="flex items-center gap-1 text-amber-700 hover:text-amber-800 font-medium"
+                      >
+                        <Coins size={13} className="text-amber-500" />
+                        {user.tokens} {t("admin.tokens")}
+                      </button>
+                      <span className="text-d-border">|</span>
+                      <span>
+                        {new Date(user.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
+                      </span>
+                    </div>
+
+                    {/* Expiry */}
+                    {user.plan === "PRO" && expiry && (
+                      <p className={`text-xs ${expiry === "Expired" ? "text-red-600 font-medium" : "text-d-text-sub"}`}>
+                        {t("admin.expires")}: {expiry}
+                      </p>
+                    )}
+
+                    {/* Action */}
+                    <StyledButton
+                      variant="outline"
+                      size="sm"
+                      onClick={() => togglePlan(user.id)}
+                      disabled={toggling === user.id}
+                      isLoading={toggling === user.id}
+                      className="w-full"
+                    >
+                      {`${t("admin.switchTo")} ${user.plan === "FREE" ? "PRO" : "FREE"}`}
+                    </StyledButton>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table */}
+          <div className="hidden lg:block bg-d-surface rounded-xl shadow-card overflow-hidden">
             {/* Table Header */}
-            <div className="flex items-center bg-d-surface-secondary rounded-t-xl border-b border-d-border min-w-0">
+            <div className="flex items-center bg-d-surface-secondary rounded-t-xl border-b border-d-border">
               <div className="w-12 shrink-0 p-3 flex items-center">
                 <input
                   type="checkbox"
@@ -497,7 +670,7 @@ export default function AdminPage() {
               </div>
               <button
                 onClick={() => toggleSort("email")}
-                className="flex-1 p-3.5 flex items-center gap-1 text-left hover:bg-d-hover-bg transition-colors"
+                className="flex-1 p-3.5 flex items-center gap-1 text-start hover:bg-d-hover-bg transition-colors"
               >
                 <span className="flex-1 text-d-text text-sm font-medium">
                   {t("admin.email")}
@@ -506,7 +679,7 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={() => toggleSort("role")}
-                className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-hover-bg transition-colors"
+                className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-hover-bg transition-colors"
               >
                 <span className="flex-1 text-d-text text-sm font-medium">
                   {t("admin.role")}
@@ -515,7 +688,7 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={() => toggleSort("plan")}
-                className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-hover-bg transition-colors"
+                className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-hover-bg transition-colors"
               >
                 <span className="flex-1 text-d-text text-sm font-medium">
                   {t("admin.plan")}
@@ -524,7 +697,7 @@ export default function AdminPage() {
               </button>
               <button
                 onClick={() => toggleSort("tokens")}
-                className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-hover-bg transition-colors"
+                className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-hover-bg transition-colors"
               >
                 <span className="flex-1 text-d-text text-sm font-medium">
                   {t("admin.tokens")}
@@ -538,7 +711,7 @@ export default function AdminPage() {
               </div>
               <button
                 onClick={() => toggleSort("createdAt")}
-                className="w-36 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-hover-bg transition-colors"
+                className="w-36 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-hover-bg transition-colors"
               >
                 <span className="flex-1 text-d-text text-sm font-medium">
                   {t("admin.created")}
@@ -563,7 +736,7 @@ export default function AdminPage() {
                 return (
                   <div key={user.id}>
                     {i > 0 && <div className="border-t border-d-border" />}
-                    <div className="flex items-center hover:bg-d-hover-bg transition-colors min-w-0">
+                    <div className="flex items-center hover:bg-d-hover-bg transition-colors">
                       <div className="w-12 shrink-0 p-3 flex items-center">
                         <input
                           type="checkbox"
@@ -666,7 +839,7 @@ export default function AdminPage() {
 
           {/* Pagination */}
           {filteredUsers.length > 0 && (
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
               <div className="flex items-center gap-1 text-sm">
                 <span className="text-d-text font-semibold">
                   {(currentPage - 1) * ITEMS_PER_PAGE + 1}
@@ -686,7 +859,7 @@ export default function AdminPage() {
                   <select
                     value={currentPage}
                     onChange={(e) => setCurrentPage(Number(e.target.value))}
-                    className="pl-2 pr-1 py-1 rounded-lg border border-d-input-border text-d-text text-sm outline-none cursor-pointer"
+                    className="ps-2 pe-1 py-1 rounded-lg border border-d-input-border text-d-text text-sm outline-none cursor-pointer"
                   >
                     {Array.from({ length: totalPages }, (_, i) => (
                       <option key={i + 1} value={i + 1}>
@@ -745,7 +918,7 @@ export default function AdminPage() {
                 .map((req) => (
                   <div
                     key={req.id}
-                    className={`bg-d-surface rounded-xl border-2 p-6 transition-colors ${
+                    className={`bg-d-surface rounded-xl border-2 p-4 sm:p-6 transition-colors ${
                       req.status === "PENDING"
                         ? "border-yellow-300"
                         : req.status === "APPROVED"
@@ -753,10 +926,10 @@ export default function AdminPage() {
                           : "border-red-200"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <span className="font-medium text-d-text">
+                    <div className="flex items-start justify-between gap-3 sm:gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
+                          <span className="font-medium text-d-text truncate">
                             {req.user.email}
                           </span>
                           <span
@@ -778,7 +951,7 @@ export default function AdminPage() {
                             }`}
                           >
                             {req.duration === "YEARLY" ? t("admin.yearly") : t("admin.monthly")}{" "}
-                            &mdash; {formatPrice(PRICES[req.duration])}
+                            &mdash; {formatPrice(configData ? (req.duration === "YEARLY" ? configData.subscriptionPrices.yearly : configData.subscriptionPrices.monthly) : (req.duration === "YEARLY" ? 50000 : 5000))}
                           </span>
                           <span className="text-xs text-d-text-sub">
                             {new Date(req.createdAt).toLocaleDateString()} {t("common.at")}{" "}
@@ -818,7 +991,7 @@ export default function AdminPage() {
                     {req.status === "PENDING" && (
                       <div className="mt-4 pt-4 border-t border-d-border">
                         {rejectId === req.id ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                             <input
                               type="text"
                               value={rejectReason}
@@ -849,7 +1022,7 @@ export default function AdminPage() {
                             </StyledButton>
                           </div>
                         ) : (
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
                             <StyledButton
                               variant="primary"
                               size="sm"
@@ -859,7 +1032,7 @@ export default function AdminPage() {
                               disabled={reviewing === req.id}
                               isLoading={reviewing === req.id}
                             >
-                              {`${t("admin.approve")} \u2014 ${req.duration === "YEARLY" ? t("admin.yearly") : t("admin.monthly")} PRO (${formatPrice(PRICES[req.duration])})`}
+                              {`${t("admin.approve")} \u2014 ${req.duration === "YEARLY" ? t("admin.yearly") : t("admin.monthly")} PRO (${formatPrice(configData ? (req.duration === "YEARLY" ? configData.subscriptionPrices.yearly : configData.subscriptionPrices.monthly) : (req.duration === "YEARLY" ? 50000 : 5000))})`}
                             </StyledButton>
                             <StyledButton
                               variant="danger"
@@ -901,7 +1074,7 @@ export default function AdminPage() {
                 .map((req) => (
                   <div
                     key={req.id}
-                    className={`bg-d-surface rounded-xl border-2 p-6 transition-colors ${
+                    className={`bg-d-surface rounded-xl border-2 p-4 sm:p-6 transition-colors ${
                       req.status === "PENDING"
                         ? "border-amber-300"
                         : req.status === "APPROVED"
@@ -909,10 +1082,10 @@ export default function AdminPage() {
                           : "border-red-200"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <span className="font-medium text-d-text">
+                    <div className="flex items-start justify-between gap-3 sm:gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
+                          <span className="font-medium text-d-text truncate">
                             {req.user.email}
                           </span>
                           <span
@@ -969,7 +1142,7 @@ export default function AdminPage() {
                     {req.status === "PENDING" && (
                       <div className="mt-4 pt-4 border-t border-d-border">
                         {tpRejectId === req.id ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                             <input
                               type="text"
                               value={tpRejectReason}
@@ -1000,7 +1173,7 @@ export default function AdminPage() {
                             </StyledButton>
                           </div>
                         ) : (
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
                             <StyledButton
                               variant="primary"
                               size="sm"
@@ -1025,6 +1198,203 @@ export default function AdminPage() {
                     )}
                   </div>
                 ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Settings Tab */}
+      {tab === "settings" && (
+        <>
+          {configLoading || !configData ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="w-8 h-8 border-4 border-d-border border-t-d-text rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Subscription Prices */}
+              <div className="bg-d-surface rounded-xl border border-d-border p-4 sm:p-6">
+                <h3 className="text-sm font-bold text-d-text mb-4">{t("admin.sectionSubscription")}</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.monthlyPrice")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.subscriptionPrices.monthly}
+                      onChange={(e) => updateConfigField("subscriptionPrices.monthly", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.yearlyPrice")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.subscriptionPrices.yearly}
+                      onChange={(e) => updateConfigField("subscriptionPrices.yearly", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Token Packs (FREE) */}
+              <div className="bg-d-surface rounded-xl border border-d-border p-4 sm:p-6">
+                <h3 className="text-sm font-bold text-d-text mb-4">{t("admin.sectionTokenPacks")}</h3>
+                <div className="space-y-4">
+                  {(["small", "medium", "large"] as const).map((size) => (
+                    <div key={size} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                      <div className="sm:col-span-1">
+                        <label className="block text-[13px] font-[450] text-d-text mb-1">
+                          {t(`admin.pack${size.charAt(0).toUpperCase() + size.slice(1)}`)}
+                        </label>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-d-text-sub mb-1">{t("admin.packTokens")}</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={configData.tokenPacks[size].tokens}
+                          onChange={(e) => updateConfigField(`tokenPacks.${size}.tokens`, Number(e.target.value))}
+                          className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-d-text-sub mb-1">{t("admin.packPrice")}</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={configData.tokenPacks[size].priceDA}
+                          onChange={(e) => updateConfigField(`tokenPacks.${size}.priceDA`, Number(e.target.value))}
+                          className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Token Packs (PRO) */}
+              <div className="bg-d-surface rounded-xl border border-d-border p-4 sm:p-6">
+                <h3 className="text-sm font-bold text-d-text mb-4">{t("admin.sectionTokenPacksPro")}</h3>
+                <div className="space-y-4">
+                  {(["small", "medium", "large"] as const).map((size) => (
+                    <div key={size} className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                      <div>
+                        <label className="block text-[13px] font-[450] text-d-text mb-1">
+                          {t(`admin.pack${size.charAt(0).toUpperCase() + size.slice(1)}`)}
+                        </label>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] text-d-text-sub mb-1">{t("admin.packProTokens")}</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={configData.tokenPacksPro[size].tokens}
+                          onChange={(e) => updateConfigField(`tokenPacksPro.${size}.tokens`, Number(e.target.value))}
+                          className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Other Settings */}
+              <div className="bg-d-surface rounded-xl border border-d-border p-4 sm:p-6">
+                <h3 className="text-sm font-bold text-d-text mb-4">{t("admin.sectionOther")}</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.proBonusTokens")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.proBonusTokens}
+                      onChange={(e) => updateConfigField("proBonusTokens", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.referralBonusTokens")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.referralBonusTokens}
+                      onChange={(e) => updateConfigField("referralBonusTokens", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.orderUnlockCost")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.orderUnlockCost}
+                      onChange={(e) => updateConfigField("orderUnlockCost", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.freeMaxProducts")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.planLimits.free.maxProducts}
+                      onChange={(e) => updateConfigField("planLimits.free.maxProducts", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.proMaxProducts")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.planLimits.pro.maxProducts}
+                      onChange={(e) => updateConfigField("planLimits.pro.maxProducts", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Ad-Free Packs */}
+              <div className="bg-d-surface rounded-xl border border-d-border p-4 sm:p-6">
+                <h3 className="text-sm font-bold text-d-text mb-4">{t("admin.sectionAdFree")}</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.adFreeWeekCost")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.adFreePacks?.week?.cost ?? 30}
+                      onChange={(e) => updateConfigField("adFreePacks.week.cost", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[13px] font-[450] text-d-text mb-1">{t("admin.adFreeMonthCost")}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={configData.adFreePacks?.month?.cost ?? 100}
+                      onChange={(e) => updateConfigField("adFreePacks.month.cost", Number(e.target.value))}
+                      className="w-full px-3 py-1.5 border border-d-input-border rounded-lg bg-d-input-bg text-[13px] min-h-[32px] focus:outline-none focus:ring-2 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Save Button */}
+              <StyledButton
+                variant="primary"
+                onClick={saveConfig}
+                isLoading={configSaving}
+                disabled={configSaving}
+                className="w-full sm:w-auto"
+              >
+                {configSaving ? t("admin.saving") : t("admin.saveSettings")}
+              </StyledButton>
             </div>
           )}
         </>

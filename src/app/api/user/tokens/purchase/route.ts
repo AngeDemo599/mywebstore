@@ -5,9 +5,8 @@ import {
   getEffectivePlan,
   unauthorized,
   badRequest,
-  TOKEN_PACKS,
-  TOKEN_PACKS_PRO,
 } from "@/lib/auth-helpers";
+import { getAppConfig, buildTokenPacks } from "@/lib/app-config";
 
 export async function GET() {
   const user = await getAuthenticatedUser();
@@ -30,6 +29,9 @@ export async function POST(req: NextRequest) {
   if (!packId || !paymentProof) {
     return badRequest("packId and paymentProof are required");
   }
+
+  const cfg = await getAppConfig();
+  const { TOKEN_PACKS, TOKEN_PACKS_PRO } = buildTokenPacks(cfg);
 
   const pack = TOKEN_PACKS[packId as keyof typeof TOKEN_PACKS];
   if (!pack) {

@@ -14,7 +14,7 @@ export async function GET(
   if (!store) return notFound("Store not found");
 
   const products = await prisma.product.findMany({
-    where: { storeId: store.id },
+    where: { storeId: store.id, isActive: true },
     orderBy: { createdAt: "desc" },
   });
 

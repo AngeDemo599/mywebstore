@@ -76,14 +76,14 @@ const navItems: NavItem[] = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { activeStore } = useStoreContext();
   const { effectivePlan, remainingDays } = useEffectivePlan();
   const [newOrderCount, setNewOrderCount] = useState(0);
   const [analyticsTrialDays, setAnalyticsTrialDays] = useState<number | null>(null);
-  const { t } = useTranslation();
+  const { t, dir } = useTranslation();
 
   const fetchNewOrderCount = useCallback(async () => {
     try {
@@ -148,7 +148,12 @@ export default function Sidebar() {
 
 
   return (
-    <aside className="fixed top-0 start-0 w-64 h-full bg-d-surface border-r border-d-border flex flex-col overflow-y-auto z-30">
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onClose} />
+      )}
+    <aside className={`fixed top-0 start-0 w-64 h-full bg-d-surface border-e border-d-border flex flex-col overflow-y-auto z-50 transition-transform duration-200 lg:translate-x-0 lg:z-30 ${isOpen ? "translate-x-0" : dir === "rtl" ? "translate-x-full" : "-translate-x-full"}`}>
       {/* Logo */}
       <div className="h-16 flex items-center px-6 border-b border-d-border flex-shrink-0">
         <Link href="/dashboard">
@@ -191,6 +196,7 @@ export default function Sidebar() {
             <div key={item.href} className={item.highlight ? "mt-4" : ""}>
               <Link
                 href={item.href}
+                onClick={onClose}
                 className={
                   item.highlight
                     ? `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
@@ -268,5 +274,6 @@ export default function Sidebar() {
         <LanguageSwitcher />
       </div>
     </aside>
+    </>
   );
 }

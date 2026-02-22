@@ -21,7 +21,7 @@ export async function PUT(
   });
   if (!product) return notFound("Product not found");
 
-  const { title, description, price, images, storeId, variations, promotions, category, contentBlocks, shippingFee } = await req.json();
+  const { title, description, price, images, storeId, variations, promotions, category, contentBlocks, shippingFee, isActive, trackStock, lowStockThreshold, valuationMethod } = await req.json();
 
   if (storeId) {
     const store = await prisma.store.findFirst({
@@ -49,6 +49,10 @@ export async function PUT(
       ...(promotions !== undefined && { promotions: promotions }),
       ...(contentBlocks !== undefined && { contentBlocks: contentBlocks }),
       ...(shippingFee !== undefined && { shippingFee: shippingFee ? parseFloat(shippingFee) : null }),
+      ...(isActive !== undefined && { isActive: Boolean(isActive) }),
+      ...(trackStock !== undefined && { trackStock: Boolean(trackStock) }),
+      ...(lowStockThreshold !== undefined && { lowStockThreshold: parseInt(lowStockThreshold) || 5 }),
+      ...(valuationMethod && ["PMP", "FIFO", "LIFO"].includes(valuationMethod) ? { valuationMethod } : {}),
     },
   });
 

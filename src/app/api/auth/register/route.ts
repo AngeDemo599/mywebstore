@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { REFERRAL_BONUS_TOKENS } from "@/lib/auth-helpers";
+import { getAppConfig } from "@/lib/app-config";
 import { generateVerificationToken } from "@/lib/verification-token";
 import { sendVerificationEmail } from "@/lib/email";
 
@@ -103,6 +103,7 @@ export async function POST(req: NextRequest) {
 
     // If referrer found, create Referral record + award bonus tokens
     if (referrer) {
+      const cfg = await getAppConfig();
       await prisma.$transaction([
         prisma.referral.create({
           data: {
@@ -112,14 +113,14 @@ export async function POST(req: NextRequest) {
         }),
         prisma.tokenBalance.upsert({
           where: { userId: referrer.id },
-          create: { userId: referrer.id, balance: REFERRAL_BONUS_TOKENS },
-          update: { balance: { increment: REFERRAL_BONUS_TOKENS } },
+          create: { userId: referrer.id, balance: cfg.referralBonusTokens },
+          update: { balance: { increment: cfg.referralBonusTokens } },
         }),
         prisma.tokenTransaction.create({
           data: {
             userId: referrer.id,
             type: "REFERRAL_BONUS",
-            amount: REFERRAL_BONUS_TOKENS,
+            amount: cfg.referralBonusTokens,
             description: `Referral bonus: ${email} signed up`,
           },
         }),
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest) {
           data: {
             userId: referrer.id,
             referralId: user.id,
-            amount: REFERRAL_BONUS_TOKENS,
+            amount: cfg.referralBonusTokens,
             description: `New signup: ${email}`,
           },
         }),

@@ -57,21 +57,21 @@ function StatCard({
   color?: string;
 }) {
   return (
-    <div className="bg-d-surface rounded-xl shadow-card p-4">
+    <div className="bg-d-surface rounded-xl shadow-card p-3 sm:p-4">
       <div className="flex items-center gap-2 mb-2">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center"
+          className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{ backgroundColor: color + "12" }}
         >
           <span style={{ color }}>{icon}</span>
         </div>
-        <span className="text-[13px] font-medium text-d-text-sub">{label}</span>
+        <span className="text-[11px] sm:text-[13px] font-medium text-d-text-sub truncate">{label}</span>
       </div>
-      <p className="text-2xl font-bold text-d-text">
+      <p className="text-xl sm:text-2xl font-bold text-d-text">
         {typeof value === "number" ? value.toLocaleString() : value}
       </p>
       {subtext && (
-        <p className="text-[11px] text-d-text-muted mt-0.5">{subtext}</p>
+        <p className="text-[10px] sm:text-[11px] text-d-text-muted mt-0.5">{subtext}</p>
       )}
     </div>
   );
@@ -228,13 +228,13 @@ export default function AffiliatesDashboard() {
       </div>
 
       {/* Referral Link Hero Card */}
-      <div className="rounded-xl p-6 mb-6 bg-gradient-to-b from-[#3a3a3a] to-[#262626] border border-black shadow-[inset_0_1px_0_0_rgba(255,255,255,0.15),0_2px_4px_rgba(0,0,0,0.3)]">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex-1 min-w-0">
-            <p className="text-white/60 text-xs font-medium mb-1">
+      <div className="rounded-xl p-4 sm:p-6 mb-4 sm:mb-6 bg-gradient-to-b from-[#3a3a3a] to-[#262626] border border-black shadow-[inset_0_1px_0_0_rgba(255,255,255,0.15),0_2px_4px_rgba(0,0,0,0.3)]">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+          <div className="flex-1 min-w-0 w-full">
+            <p className="text-white/60 text-[11px] sm:text-xs font-medium mb-1">
               {t("affiliates.referralLink")}
             </p>
-            <p className="text-white text-sm font-mono truncate">
+            <p className="text-white text-xs sm:text-sm font-mono truncate">
               {referralUrl}
             </p>
           </div>
@@ -257,8 +257,8 @@ export default function AffiliatesDashboard() {
         </div>
 
         {/* Share buttons */}
-        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-white/10">
-          <span className="text-white/40 text-xs mr-1">{t("common.shareVia")}</span>
+        <div className="flex items-center gap-2 mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/10">
+          <span className="text-white/40 text-xs me-1">{t("common.shareVia")}</span>
           {/* WhatsApp */}
           <a
             href={`https://wa.me/?text=${shareText}%20${encodedUrl}`}
@@ -317,7 +317,7 @@ export default function AffiliatesDashboard() {
       </div>
 
       {/* 4 Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 mb-4 sm:mb-6">
         <StatCard
           icon={<Users className="w-4 h-4" />}
           label={t("affiliates.totalReferrals")}
@@ -349,7 +349,7 @@ export default function AffiliatesDashboard() {
       </div>
 
       {/* Earnings Chart */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5 mb-6">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5 mb-4 sm:mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-base font-semibold text-d-text">
@@ -397,7 +397,7 @@ export default function AffiliatesDashboard() {
       </div>
 
       {/* Referrals List */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5 mb-6">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5 mb-4 sm:mb-6">
         <h2 className="text-base font-semibold text-d-text mb-4">
           {t("affiliates.yourReferrals")}
         </h2>
@@ -407,12 +407,12 @@ export default function AffiliatesDashboard() {
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-d-text-sub bg-d-surface-secondary">
+                  <tr className="text-start text-d-text-sub bg-d-surface-secondary">
                     <th className="px-3 py-2 font-medium rounded-l-lg">
                       {t("affiliates.user")}
                     </th>
                     <th className="px-3 py-2 font-medium">{t("affiliates.status")}</th>
-                    <th className="px-3 py-2 font-medium rounded-r-lg text-right">
+                    <th className="px-3 py-2 font-medium rounded-r-lg text-end">
                       {t("affiliates.date")}
                     </th>
                   </tr>
@@ -433,7 +433,7 @@ export default function AffiliatesDashboard() {
                           {r.status === "SIGNED_UP" ? t("affiliates.signedUp") : r.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-right text-d-text-sub text-xs">
+                      <td className="px-3 py-2.5 text-end text-d-text-sub text-xs">
                         {formatDate(r.createdAt)}
                       </td>
                     </tr>
@@ -472,7 +472,7 @@ export default function AffiliatesDashboard() {
       </div>
 
       {/* Activity Timeline */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5 mb-6">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5 mb-4 sm:mb-6">
         <h2 className="text-base font-semibold text-d-text mb-4">
           {t("affiliates.recentActivity")}
         </h2>
@@ -512,7 +512,7 @@ export default function AffiliatesDashboard() {
       </div>
 
       {/* How to Earn More */}
-      <div className="bg-d-surface rounded-xl shadow-card p-5">
+      <div className="bg-d-surface rounded-xl shadow-card p-4 sm:p-5">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
             <Lightbulb className="w-4 h-4 text-amber-600" />

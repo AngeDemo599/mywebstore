@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useCallback } from "react";
 import { Minus, Plus, CheckCircle, ShoppingBag } from "lucide-react";
+import { trackPixelEvent } from "@/components/meta-pixel";
 import { StoreTheme, StoreStyle } from "@/types/store";
 import { getStyleClasses } from "@/lib/theme";
 import { WILAYAS, getWilayaLabel } from "@/lib/wilayas";
@@ -41,9 +42,12 @@ interface OrderFormProps {
   shippingFee?: number | null;
   locale?: Locale;
   isDemo?: boolean;
+  metaPixelId?: string | null;
+  trackStock?: boolean;
+  stockQuantity?: number;
 }
 
-export default function OrderForm({ productId, storeSlug, theme, storeStyle, basePrice, variations, promotions, productTitle, shippingFee, locale = "ar", isDemo = false }: OrderFormProps) {
+export default function OrderForm({ productId, storeSlug, theme, storeStyle, basePrice, variations, promotions, productTitle, shippingFee, locale = "ar", isDemo = false, metaPixelId, trackStock, stockQuantity }: OrderFormProps) {
   const styleClasses = storeStyle ? getStyleClasses(storeStyle) : null;
   const dict = dictionaries[locale];
   const t = (key: string) => dict[key] || key;
@@ -182,10 +186,24 @@ export default function OrderForm({ productId, storeSlug, theme, storeStyle, bas
     setSubmitting(false);
 
     if (!res.ok) {
-      setError(data.error);
+      if (data.available !== undefined) {
+        setError(`${t("public.insufficientStock")} ${t("public.available")}: ${data.available}`);
+      } else {
+        setError(data.error);
+      }
     } else {
       setSuccess(true);
       fireTrack("FORM_SUBMIT");
+      if (metaPixelId && totalPrice != null) {
+        trackPixelEvent("Purchase", {
+          value: totalPrice,
+          currency: "DZD",
+          content_name: productTitle,
+          content_type: "product",
+          contents: [{ id: productId, quantity }],
+          num_items: quantity,
+        });
+      }
       if (!isDemo) {
         setFirstName("");
         setLastName("");
@@ -284,7 +302,7 @@ export default function OrderForm({ productId, storeSlug, theme, storeStyle, bas
                         )}
                         {opt.value}
                         {opt.priceAdjustment > 0 && (
-                          <span className="ml-1 text-xs opacity-60">+{formatPrice(opt.priceAdjustment)}</span>
+                          <span className="ms-1 text-xs opacity-60">+{formatPrice(opt.priceAdjustment)}</span>
                         )}
                       </button>
                     );
@@ -304,19 +322,27 @@ export default function OrderForm({ productId, storeSlug, theme, storeStyle, bas
             <button
               type="button"
               onClick={() => setQuantity(Math.max(1, quantity - 1))}
-              className="p-2.5 bg-[#f7f7f7] rounded-lg hover:bg-[#f1f1f1] transition-colors active:scale-95"
+              disabled={trackStock && stockQuantity === 0}
+              className="p-2.5 bg-[#f7f7f7] rounded-lg hover:bg-[#f1f1f1] transition-colors active:scale-95 disabled:opacity-50"
             >
               <Minus className="w-4 h-4 text-gray-600" />
             </button>
             <span className="w-12 text-center font-semibold text-lg text-[#303030]">{quantity}</span>
             <button
               type="button"
-              onClick={() => setQuantity(quantity + 1)}
-              className="p-2.5 bg-[#f7f7f7] rounded-lg hover:bg-[#f1f1f1] transition-colors active:scale-95"
+              onClick={() => {
+                const max = trackStock && stockQuantity != null ? stockQuantity : Infinity;
+                if (quantity < max) setQuantity(quantity + 1);
+              }}
+              disabled={(trackStock && stockQuantity != null && quantity >= stockQuantity) || (trackStock && stockQuantity === 0)}
+              className="p-2.5 bg-[#f7f7f7] rounded-lg hover:bg-[#f1f1f1] transition-colors active:scale-95 disabled:opacity-50"
             >
               <Plus className="w-4 h-4 text-gray-600" />
             </button>
           </div>
+          {trackStock && stockQuantity != null && stockQuantity > 0 && (
+            <p className="text-xs text-[#616161] mt-1">{stockQuantity} {t("public.unitsAvailable")}</p>
+          )}
         </div>
 
         {/* Customer Information */}
@@ -432,9 +458,9 @@ export default function OrderForm({ productId, storeSlug, theme, storeStyle, bas
             </div>
             <div className="border-t border-[#e3e3e3] pt-2 mt-2 flex justify-between">
               <span className="text-base font-bold text-[#303030]">{t("public.total")}</span>
-              <div className="text-right">
+              <div className="text-end">
                 {savings > 0 && rawTotal != null && (
-                  <span className="text-xs text-[#616161] line-through mr-2">{formatPrice(rawTotal)}</span>
+                  <span className="text-xs text-[#616161] line-through me-2">{formatPrice(rawTotal)}</span>
                 )}
                 <span className="text-base font-bold" style={{ color: theme.primaryColor }}>{formatPrice(totalPrice!)}</span>
               </div>
@@ -443,25 +469,36 @@ export default function OrderForm({ productId, storeSlug, theme, storeStyle, bas
         )}
 
         {/* Submit Button */}
-        <button
-          type={isDemo ? "button" : "submit"}
-          onClick={isDemo ? handleDemoOrder : undefined}
-          disabled={submitting}
-          className="w-full py-4 font-semibold text-lg transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
-          style={styleClasses ? { ...styleClasses.buttonStyle, width: "100%", padding: "16px" } : { backgroundColor: theme.primaryColor, color: "#ffffff", borderRadius: "8px", boxShadow: "0 10px 25px rgba(0,0,0,0.12)" }}
-        >
-          {submitting ? (
-            <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              {t("public.submitting")}
-            </>
-          ) : (
-            <>
-              <ShoppingBag className="w-5 h-5" />
-              {totalPrice != null ? `${t("public.orderNow")} - ${formatPrice(totalPrice)}` : t("public.placeOrder")}
-            </>
-          )}
-        </button>
+        {trackStock && stockQuantity === 0 ? (
+          <button
+            type="button"
+            disabled
+            className="w-full py-4 font-semibold text-lg bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            <ShoppingBag className="w-5 h-5" />
+            {t("public.outOfStock")}
+          </button>
+        ) : (
+          <button
+            type={isDemo ? "button" : "submit"}
+            onClick={isDemo ? handleDemoOrder : undefined}
+            disabled={submitting}
+            className="w-full py-4 font-semibold text-lg transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+            style={styleClasses ? { ...styleClasses.buttonStyle, width: "100%", padding: "16px" } : { backgroundColor: theme.primaryColor, color: "#ffffff", borderRadius: "8px", boxShadow: "0 10px 25px rgba(0,0,0,0.12)" }}
+          >
+            {submitting ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                {t("public.submitting")}
+              </>
+            ) : (
+              <>
+                <ShoppingBag className="w-5 h-5" />
+                {totalPrice != null ? `${t("public.orderNow")} - ${formatPrice(totalPrice)}` : t("public.placeOrder")}
+              </>
+            )}
+          </button>
+        )}
       </div>
     </form>
   );

@@ -18,6 +18,7 @@ import {
 import { useTokenBalance } from "@/lib/use-token-balance";
 import { useStoreContext } from "@/lib/store-context";
 import { useTranslation } from "@/components/language-provider";
+import { playNotification } from "@/lib/sounds";
 
 interface Notification {
   id: string;
@@ -90,7 +91,12 @@ export default function DashboardHeader() {
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications);
-        setUnreadCount(data.unreadCount);
+        setUnreadCount((prev) => {
+          if (data.unreadCount > prev && prev > 0) {
+            playNotification();
+          }
+          return data.unreadCount;
+        });
       }
     } catch {
       // ignore
@@ -157,7 +163,7 @@ export default function DashboardHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-20 h-16 bg-d-surface border-b border-d-border flex items-center justify-between px-6 flex-shrink-0">
+    <header className="sticky top-0 z-20 h-14 lg:h-16 bg-d-surface border-b border-d-border hidden lg:flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
       {/* Breadcrumbs */}
       <nav className="flex items-center gap-1.5 text-sm">
         {breadcrumbs.map((crumb, i) => (
@@ -188,7 +194,7 @@ export default function DashboardHeader() {
             className="flex items-center gap-2 px-3 py-2 rounded-lg border border-d-border text-d-text-sub hover:text-d-text hover:bg-d-active-bg transition-colors text-sm font-medium"
           >
             <ExternalLink size={15} />
-            {t("header.viewStore")}
+            <span className="hidden sm:inline">{t("header.viewStore")}</span>
           </a>
         )}
 
@@ -225,7 +231,7 @@ export default function DashboardHeader() {
           </button>
 
           {notifOpen && (
-            <div className="absolute end-0 top-full mt-2 w-96 bg-d-surface rounded-xl border border-d-border shadow-card z-50 overflow-hidden">
+            <div className="absolute end-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-96 bg-d-surface rounded-xl border border-d-border shadow-card z-50 overflow-hidden">
               <div className="px-4 py-3 border-b border-d-border flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-d-text">
                   {t("header.notifications")}

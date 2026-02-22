@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUser, unauthorized, badRequest, calculateNewExpiry, PRO_BONUS_TOKENS } from "@/lib/auth-helpers";
+import { getAuthenticatedUser, unauthorized, badRequest, calculateNewExpiry } from "@/lib/auth-helpers";
+import { getAppConfig } from "@/lib/app-config";
 
 export async function PATCH(
   req: NextRequest,
@@ -44,6 +45,7 @@ export async function PATCH(
       upgradeRequest.duration
     );
 
+    const cfg = await getAppConfig();
     const isFirstPro = !requestingUser?.receivedProBonus;
 
     if (isFirstPro) {
@@ -59,15 +61,15 @@ export async function PATCH(
         }),
         prisma.tokenBalance.upsert({
           where: { userId: upgradeRequest.userId },
-          create: { userId: upgradeRequest.userId, balance: PRO_BONUS_TOKENS },
-          update: { balance: { increment: PRO_BONUS_TOKENS } },
+          create: { userId: upgradeRequest.userId, balance: cfg.proBonusTokens },
+          update: { balance: { increment: cfg.proBonusTokens } },
         }),
         prisma.tokenTransaction.create({
           data: {
             userId: upgradeRequest.userId,
             type: "PRO_BONUS",
-            amount: PRO_BONUS_TOKENS,
-            description: `PRO subscription welcome bonus (${PRO_BONUS_TOKENS} tokens)`,
+            amount: cfg.proBonusTokens,
+            description: `PRO subscription welcome bonus (${cfg.proBonusTokens} tokens)`,
           },
         }),
       ]);

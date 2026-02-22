@@ -83,41 +83,72 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
-  if (!user) return unauthorized();
-  if (isDemoUser(user)) return demoForbidden();
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorized();
+    if (isDemoUser(user)) return demoForbidden();
 
-  const { id } = await params;
-  const store = await prisma.store.findFirst({
-    where: { id, ownerId: user.id },
-  });
-  if (!store) return notFound("Store not found");
+    const { id } = await params;
+    const store = await prisma.store.findFirst({
+      where: { id, ownerId: user.id },
+    });
+    if (!store) return notFound("Store not found");
 
-  const { name, logo, theme, language } = await req.json();
-  if (!name || typeof name !== "string" || name.trim().length === 0) {
-    return badRequest("Store name is required");
+    const { name, logo, theme, language, metaPixelId, sheetsWebhookUrl } = await req.json();
+    if (!name || typeof name !== "string" || name.trim().length === 0) {
+      return badRequest("Store name is required");
+    }
+
+    if (theme) {
+      const themeError = validateTheme(theme);
+      if (themeError) return badRequest(themeError);
+    }
+
+    if (language !== undefined && !["ar", "fr"].includes(language)) {
+      return badRequest("Language must be 'ar' or 'fr'");
+    }
+
+    let sanitizedPixelId: string | null | undefined = undefined;
+    if (metaPixelId !== undefined) {
+      if (metaPixelId && typeof metaPixelId === "string" && metaPixelId.trim().length > 0) {
+        if (!/^\d{10,20}$/.test(metaPixelId.trim())) {
+          return badRequest("Meta Pixel ID must be 10-20 digits");
+        }
+        sanitizedPixelId = metaPixelId.trim();
+      } else {
+        sanitizedPixelId = null;
+      }
+    }
+
+    let sanitizedWebhookUrl: string | null | undefined = undefined;
+    if (sheetsWebhookUrl !== undefined) {
+      if (sheetsWebhookUrl && typeof sheetsWebhookUrl === "string" && sheetsWebhookUrl.trim().length > 0) {
+        if (!sheetsWebhookUrl.trim().startsWith("https://script.google.com/")) {
+          return badRequest("Webhook URL must start with https://script.google.com/");
+        }
+        sanitizedWebhookUrl = sheetsWebhookUrl.trim();
+      } else {
+        sanitizedWebhookUrl = null;
+      }
+    }
+
+    const updated = await prisma.store.update({
+      where: { id },
+      data: {
+        name: name.trim(),
+        ...(logo !== undefined ? { logo: logo || null } : {}),
+        ...(theme !== undefined ? { theme: theme || null } : {}),
+        ...(language !== undefined ? { language } : {}),
+        ...(sanitizedPixelId !== undefined ? { metaPixelId: sanitizedPixelId } : {}),
+        ...(sanitizedWebhookUrl !== undefined ? { sheetsWebhookUrl: sanitizedWebhookUrl } : {}),
+      },
+    });
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error("PUT /api/stores/[id] error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  if (theme) {
-    const themeError = validateTheme(theme);
-    if (themeError) return badRequest(themeError);
-  }
-
-  if (language !== undefined && !["ar", "fr"].includes(language)) {
-    return badRequest("Language must be 'ar' or 'fr'");
-  }
-
-  const updated = await prisma.store.update({
-    where: { id },
-    data: {
-      name: name.trim(),
-      ...(logo !== undefined ? { logo: logo || null } : {}),
-      ...(theme !== undefined ? { theme: theme || null } : {}),
-      ...(language !== undefined ? { language } : {}),
-    },
-  });
-
-  return NextResponse.json(updated);
 }
 
 export async function DELETE(

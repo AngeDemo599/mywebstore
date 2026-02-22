@@ -74,5 +74,13 @@ export async function PATCH(req: NextRequest) {
     },
   });
 
+  // When downgrading to FREE, clear Google Sheets webhook (PRO-only feature)
+  if (newPlan === "FREE") {
+    await prisma.store.updateMany({
+      where: { ownerId: userId },
+      data: { sheetsWebhookUrl: null },
+    });
+  }
+
   return NextResponse.json(updatedUser);
 }

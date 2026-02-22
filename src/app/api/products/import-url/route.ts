@@ -6,7 +6,12 @@ import {
   badRequest,
   forbidden,
 } from "@/lib/auth-helpers";
-import { scrapeAliExpressProduct, isAliExpressUrl } from "@/lib/scrape-product";
+import {
+  scrapeAliExpressProduct,
+  isAliExpressUrl,
+  scrapeFacebookProduct,
+  isFacebookMarketplaceUrl,
+} from "@/lib/scrape-product";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,11 +29,16 @@ export async function POST(req: NextRequest) {
       return badRequest("URL is required");
     }
 
-    if (!isAliExpressUrl(url)) {
-      return badRequest("Please enter a valid AliExpress product URL");
+    const isAli = isAliExpressUrl(url);
+    const isFb = isFacebookMarketplaceUrl(url);
+
+    if (!isAli && !isFb) {
+      return badRequest("Please enter a valid AliExpress or Facebook Marketplace URL");
     }
 
-    const scraped = await scrapeAliExpressProduct(url);
+    const scraped = isAli
+      ? await scrapeAliExpressProduct(url)
+      : await scrapeFacebookProduct(url);
 
     if (!scraped.title && !scraped.description && scraped.images.length === 0) {
       return NextResponse.json(
@@ -43,6 +53,7 @@ export async function POST(req: NextRequest) {
       images: scraped.images,
       sourceUrl: url,
       siteName: scraped.siteName,
+      price: scraped.price,
     });
   } catch (error) {
     console.error("POST /api/products/import-url error:", error);

@@ -17,6 +17,8 @@ export interface StoreData {
   logo: string | null;
   theme: Record<string, unknown> | null;
   language: string;
+  metaPixelId: string | null;
+  sheetsWebhookUrl: string | null;
   createdAt: string;
   _count: { products: number };
 }

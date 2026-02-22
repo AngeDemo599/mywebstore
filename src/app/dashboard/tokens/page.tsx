@@ -29,6 +29,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import ProCTA from "@/components/pro-cta";
 import { useTranslation } from "@/components/language-provider";
+import { useAdFreeStatus } from "@/lib/use-ad-free-status";
 
 interface TokenPurchase {
   id: string;
@@ -50,7 +51,7 @@ interface TokenTransaction {
   createdAt: string;
 }
 
-const PACKS = [
+const DEFAULT_PACKS = [
   { id: "small", name: "Small", tokens: 100, priceDA: 1000, proTokens: 120, isBestValue: false },
   { id: "medium", name: "Medium", tokens: 500, priceDA: 4500, proTokens: 625, isBestValue: true },
   { id: "large", name: "Large", tokens: 1000, priceDA: 8500, proTokens: 1250, isBestValue: false },
@@ -62,9 +63,10 @@ export default function TokensPage() {
   const { balance, transactions, loading: balanceLoading } = useTokenBalance();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [PACKS, setPACKS] = useState(DEFAULT_PACKS);
   const [purchases, setPurchases] = useState<TokenPurchase[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPack, setSelectedPack] = useState(PACKS[1]); // default medium
+  const [selectedPack, setSelectedPack] = useState(DEFAULT_PACKS[1]); // default medium
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [proofUrl, setProofUrl] = useState("");
@@ -73,15 +75,36 @@ export default function TokensPage() {
   const [success, setSuccess] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
+  const { showAds, adFreeUntil, refresh: refreshAdFree } = useAdFreeStatus();
+  const [adFreePackCosts, setAdFreePackCosts] = useState<{ week: { days: number; cost: number }; month: { days: number; cost: number } } | null>(null);
+  const [selectedAdFreePack, setSelectedAdFreePack] = useState<"week" | "month">("week");
+  const [adFreePurchasing, setAdFreePurchasing] = useState(false);
+  const [adFreeError, setAdFreeError] = useState("");
+  const [adFreeSuccess, setAdFreeSuccess] = useState(false);
+
   const isPro = effectivePlan === "PRO";
   const pendingPurchase = purchases.find((p) => p.status === "PENDING");
 
   useEffect(() => {
     if (status === "loading") return;
-    fetch("/api/user/tokens/purchase")
-      .then((res) => res.json())
-      .then((data) => {
-        setPurchases(Array.isArray(data) ? data : []);
+    Promise.all([
+      fetch("/api/user/tokens/purchase").then((res) => res.json()),
+      fetch("/api/config").then((res) => res.ok ? res.json() : null),
+    ])
+      .then(([purchaseData, cfgData]) => {
+        setPurchases(Array.isArray(purchaseData) ? purchaseData : []);
+        if (cfgData?.tokenPacks && cfgData?.tokenPacksPro) {
+          const newPacks = [
+            { id: "small", name: "Small", tokens: cfgData.tokenPacks.small.tokens, priceDA: cfgData.tokenPacks.small.priceDA, proTokens: cfgData.tokenPacksPro.small.tokens, isBestValue: false },
+            { id: "medium", name: "Medium", tokens: cfgData.tokenPacks.medium.tokens, priceDA: cfgData.tokenPacks.medium.priceDA, proTokens: cfgData.tokenPacksPro.medium.tokens, isBestValue: true },
+            { id: "large", name: "Large", tokens: cfgData.tokenPacks.large.tokens, priceDA: cfgData.tokenPacks.large.priceDA, proTokens: cfgData.tokenPacksPro.large.tokens, isBestValue: false },
+          ];
+          setPACKS(newPacks);
+          setSelectedPack(newPacks[1]); // default medium
+        }
+        if (cfgData?.adFreePacks) {
+          setAdFreePackCosts(cfgData.adFreePacks);
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -150,6 +173,31 @@ export default function TokensPage() {
     }
   };
 
+  const handleAdFreePurchase = async () => {
+    setAdFreePurchasing(true);
+    setAdFreeError("");
+    setAdFreeSuccess(false);
+    try {
+      const res = await fetch("/api/user/ad-free", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packId: selectedAdFreePack }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAdFreeError(data.error || t("tokens.adFreeInsufficientTokens"));
+      } else {
+        setAdFreeSuccess(true);
+        refreshAdFree();
+        // Refresh token balance
+        window.location.reload();
+      }
+    } catch {
+      setAdFreeError(t("tokens.adFreeInsufficientTokens"));
+    }
+    setAdFreePurchasing(false);
+  };
+
   if (status === "loading" || loading || balanceLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -172,8 +220,8 @@ export default function TokensPage() {
 
       {/* Balance Card */}
       <div className="bg-gradient-to-b from-[#3a3a3a] to-[#262626] rounded-xl p-8 text-white relative overflow-hidden border border-black shadow-[inset_0_1px_0_0_rgba(255,255,255,0.15),0_4px_12px_rgba(0,0,0,0.3)]">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full filter blur-[80px] opacity-[0.04] translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-lime-400 rounded-full filter blur-[60px] opacity-[0.06] -translate-x-1/3 translate-y-1/3" />
+        <div className="absolute top-0 end-0 w-64 h-64 bg-white rounded-full filter blur-[80px] opacity-[0.04] translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 start-0 w-48 h-48 bg-lime-400 rounded-full filter blur-[60px] opacity-[0.06] -translate-x-1/3 translate-y-1/3" />
 
         <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
@@ -193,6 +241,77 @@ export default function TokensPage() {
           )}
         </div>
       </div>
+
+      {/* Remove Ads Section — FREE users only */}
+      {!isPro && adFreePackCosts && (
+        <div className="bg-d-surface rounded-xl shadow-card border border-d-border p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-d-surface-tertiary rounded-lg">
+              <X size={20} className="text-d-text" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-d-text">{t("tokens.removeAds")}</h2>
+              <p className="text-sm text-d-text-sub">{t("tokens.removeAdsDesc")}</p>
+            </div>
+          </div>
+
+          {adFreeError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-sm mb-4">{adFreeError}</div>
+          )}
+
+          {adFreeSuccess && (
+            <div className="bg-green-50 border border-green-200 text-green-700 p-3 rounded-xl text-sm mb-4 flex items-center gap-2">
+              <CheckCircle size={16} />
+              {t("tokens.adFreePurchased")}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <button
+              onClick={() => setSelectedAdFreePack("week")}
+              className={`p-4 rounded-xl border-2 transition-all text-start ${
+                selectedAdFreePack === "week"
+                  ? "border-d-text bg-d-surface-secondary"
+                  : "border-d-border hover:border-d-input-border"
+              }`}
+            >
+              <p className="text-sm font-bold text-d-text">{t("tokens.adFreeWeek")}</p>
+              <p className="text-xs text-d-text-sub mt-1">{t("tokens.adFreeCost").replace("{cost}", String(adFreePackCosts.week.cost))}</p>
+            </button>
+            <button
+              onClick={() => setSelectedAdFreePack("month")}
+              className={`p-4 rounded-xl border-2 transition-all text-start ${
+                selectedAdFreePack === "month"
+                  ? "border-d-text bg-d-surface-secondary"
+                  : "border-d-border hover:border-d-input-border"
+              }`}
+            >
+              <p className="text-sm font-bold text-d-text">{t("tokens.adFreeMonth")}</p>
+              <p className="text-xs text-d-text-sub mt-1">{t("tokens.adFreeCost").replace("{cost}", String(adFreePackCosts.month.cost))}</p>
+            </button>
+          </div>
+
+          <button
+            onClick={handleAdFreePurchase}
+            disabled={adFreePurchasing}
+            className="w-full py-3 px-6 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all bg-[#303030] text-white hover:bg-[#404040] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.15),0_2px_4px_rgba(0,0,0,0.3)] active:scale-[0.98] disabled:opacity-50"
+          >
+            {adFreePurchasing ? t("common.loading") : t("tokens.activateAdFree")}
+          </button>
+
+          {adFreeUntil && !showAds && (
+            <div className="mt-4 flex items-center gap-2 text-sm">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <CheckCircle size={10} />
+                {t("tokens.adFreeActive")}
+              </span>
+              <span className="text-d-text-sub">
+                {t("tokens.adFreeUntil")} {new Date(adFreeUntil).toLocaleDateString()}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pending Purchase Notice */}
       {pendingPurchase && (
@@ -251,7 +370,7 @@ export default function TokensPage() {
                     setError("");
                   }}
                   disabled={!!pendingPurchase}
-                  className={`relative group cursor-pointer transition-all border-2 rounded-xl p-6 flex flex-col gap-4 h-full text-left disabled:opacity-50 ${
+                  className={`relative group cursor-pointer transition-all border-2 rounded-xl p-6 flex flex-col gap-4 h-full text-start disabled:opacity-50 ${
                     isSelected
                       ? "border-d-text bg-d-surface-secondary shadow-lg"
                       : "border-d-border bg-d-surface hover:border-d-input-border hover:shadow-md"
@@ -339,7 +458,7 @@ export default function TokensPage() {
                   <p className="text-xs text-d-text-sub">{t("tokens.selectedPackage")}</p>
                   <p className="font-bold text-d-text text-sm">{selectedPack.id === "small" ? t("tokens.smallPack") : selectedPack.id === "medium" ? t("tokens.mediumPack") : t("tokens.largePack")} ({tokensForSelected} {t("tokens.tokens")})</p>
                 </div>
-                <div className="text-right">
+                <div className="text-end">
                   <p className="text-xs text-d-text-sub">{t("tokens.totalDue")}</p>
                   <p className="text-lg font-bold text-d-text">{selectedPack.priceDA.toLocaleString()} DA</p>
                 </div>
@@ -450,7 +569,7 @@ export default function TokensPage() {
                     <div className="flex items-center gap-2 px-3 py-1 bg-d-surface rounded-full border border-green-200">
                       <FileText size={12} className="text-green-600" />
                       <span className="text-xs text-green-700 truncate max-w-[150px]">{proofFileName || "receipt.jpg"}</span>
-                      <button onClick={resetUpload} className="ml-1 text-green-400 hover:text-green-600">
+                      <button onClick={resetUpload} className="ms-1 text-green-400 hover:text-green-600">
                         <X size={12} />
                       </button>
                     </div>
@@ -491,11 +610,11 @@ export default function TokensPage() {
             <table className="w-full">
               <thead className="bg-d-surface-secondary border-b border-d-border">
                 <tr>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.date")}</th>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("tokens.pack")}</th>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("tokens.tokens")}</th>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.price")}</th>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.status")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.date")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("tokens.pack")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("tokens.tokens")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.price")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.status")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-d-border">
@@ -538,9 +657,9 @@ export default function TokensPage() {
             <table className="w-full">
               <thead className="bg-d-surface-secondary border-b border-d-border">
                 <tr>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.date")}</th>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.description")}</th>
-                  <th className="text-left px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.amount")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.date")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.description")}</th>
+                  <th className="text-start px-6 py-3 text-[13px] font-[450] text-d-text normal-case">{t("common.amount")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-d-border">

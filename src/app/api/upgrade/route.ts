@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthenticatedUser, unauthorized, badRequest, demoForbidden, SUBSCRIPTION_PRICES } from "@/lib/auth-helpers";
+import { getAuthenticatedUser, unauthorized, badRequest, demoForbidden } from "@/lib/auth-helpers";
 import { isDemoUser } from "@/lib/demo";
 
 export async function GET() {

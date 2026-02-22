@@ -4,8 +4,8 @@ import {
   getAuthenticatedUser,
   unauthorized,
   badRequest,
-  ORDER_UNLOCK_COST,
 } from "@/lib/auth-helpers";
+import { getAppConfig } from "@/lib/app-config";
 
 export async function POST(
   req: NextRequest,
@@ -41,27 +41,28 @@ export async function POST(
   }
 
   // Check token balance
+  const cfg = await getAppConfig();
   const tokenBalance = await prisma.tokenBalance.findUnique({
     where: { userId: user.id },
   });
 
   const currentBalance = tokenBalance?.balance ?? 0;
-  if (currentBalance < ORDER_UNLOCK_COST) {
-    return badRequest(`Insufficient tokens. Need ${ORDER_UNLOCK_COST}, have ${currentBalance}`);
+  if (currentBalance < cfg.orderUnlockCost) {
+    return badRequest(`Insufficient tokens. Need ${cfg.orderUnlockCost}, have ${currentBalance}`);
   }
 
   // Transaction: deduct tokens + create unlock record
   await prisma.$transaction([
     prisma.tokenBalance.upsert({
       where: { userId: user.id },
-      create: { userId: user.id, balance: -ORDER_UNLOCK_COST },
-      update: { balance: { decrement: ORDER_UNLOCK_COST } },
+      create: { userId: user.id, balance: -cfg.orderUnlockCost },
+      update: { balance: { decrement: cfg.orderUnlockCost } },
     }),
     prisma.tokenTransaction.create({
       data: {
         userId: user.id,
         type: "UNLOCK_ORDER",
-        amount: -ORDER_UNLOCK_COST,
+        amount: -cfg.orderUnlockCost,
         description: `Unlocked order for "${order.product.title}"`,
         metadata: { orderId },
       },

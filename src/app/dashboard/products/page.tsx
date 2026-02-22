@@ -28,6 +28,8 @@ import {
   ExternalLink,
   ImageIcon,
   Loader2,
+  Package,
+  Minus,
 } from "lucide-react";
 import { StyledButton } from "@/components/styled-button";
 import { useEffectivePlan } from "@/lib/use-effective-plan";
@@ -35,6 +37,7 @@ import { PLAN_LIMITS } from "@/lib/auth-helpers";
 import ProCTA from "@/components/pro-cta";
 import { useTranslation } from "@/components/language-provider";
 import { useStoreContext } from "@/lib/store-context";
+import { useToast } from "@/components/toast";
 
 interface Product {
   id: string;
@@ -45,6 +48,10 @@ interface Product {
   category: string | null;
   images: string[];
   createdAt: string;
+  isActive: boolean;
+  trackStock: boolean;
+  stockQuantity: number;
+  lowStockThreshold: number;
   store: { id: string; name: string; slug: string };
   _count: { orders: number };
 }
@@ -53,6 +60,7 @@ const ITEMS_PER_PAGE = 8;
 
 export default function ProductsPage() {
   const { t } = useTranslation();
+  const { success: toastSuccess, error: toastError, info: toastInfo } = useToast();
   const { data: session, status } = useSession();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
@@ -75,6 +83,14 @@ export default function ProductsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
 
+  // Inline stock edit state
+  const [stockEditId, setStockEditId] = useState<string | null>(null);
+  const [stockEditQty, setStockEditQty] = useState("");
+  const [stockEditCost, setStockEditCost] = useState("");
+  const [stockEditSaving, setStockEditSaving] = useState(false);
+  const stockEditRef = useRef<HTMLDivElement>(null);
+  const [togglingActive, setTogglingActive] = useState<string | null>(null);
+
   // URL Import state
   const [showUrlImportModal, setShowUrlImportModal] = useState(false);
   const [importUrlValue, setImportUrlValue] = useState("");
@@ -87,6 +103,7 @@ export default function ProductsPage() {
     images: string[];
     siteName: string | null;
     sourceUrl: string;
+    price: number | null;
   } | null>(null);
   const [editedTitle, setEditedTitle] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
@@ -94,6 +111,7 @@ export default function ProductsPage() {
   const [editedShippingFee, setEditedShippingFee] = useState("");
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set());
   const [urlImportSuccess, setUrlImportSuccess] = useState("");
+  const [importPlatform, setImportPlatform] = useState<"aliexpress" | "facebook">("aliexpress");
 
   const plan = session?.user?.plan || "FREE";
   const { effectivePlan } = useEffectivePlan();
@@ -109,6 +127,72 @@ export default function ProductsPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const handleStockClickOutside = (e: MouseEvent) => {
+      if (stockEditRef.current && !stockEditRef.current.contains(e.target as Node)) {
+        setStockEditId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleStockClickOutside);
+    return () => document.removeEventListener("mousedown", handleStockClickOutside);
+  }, []);
+
+  const handleQuickStockAdd = async (productId: string) => {
+    const qty = parseInt(stockEditQty);
+    const cost = parseFloat(stockEditCost);
+    if (!qty || qty <= 0) return;
+
+    setStockEditSaving(true);
+    try {
+      const res = await fetch(`/api/products/${productId}/stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "PURCHASE",
+          quantity: qty,
+          unitCost: cost || 0,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === productId ? { ...p, stockQuantity: data.stockQuantity } : p
+          )
+        );
+        setStockEditId(null);
+        setStockEditQty("");
+        setStockEditCost("");
+        toastSuccess(t("toast.stockUpdated"), undefined, "product");
+      }
+    } catch {}
+    setStockEditSaving(false);
+  };
+
+  const handleToggleActive = async (product: Product) => {
+    setTogglingActive(product.id);
+    try {
+      const res = await fetch(`/api/products/${product.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !product.isActive }),
+      });
+      if (res.ok) {
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === product.id ? { ...p, isActive: !p.isActive } : p
+          )
+        );
+        toastSuccess(
+          !product.isActive ? t("toast.productActivated") : t("toast.productDeactivated"),
+          product.title,
+          "product"
+        );
+      }
+    } catch {}
+    setTogglingActive(null);
+  };
 
   useEffect(() => {
     if (status === "loading") return;
@@ -138,10 +222,13 @@ export default function ProductsPage() {
         next.delete(id);
         return next;
       });
+      toastSuccess(t("toast.productDeleted"), deleteTarget.title, "delete");
+    } else {
+      toastError(t("toast.productDeleteFailed"));
     }
     setDeleting(null);
     setDeleteTarget(null);
-  }, [deleteTarget]);
+  }, [deleteTarget, toastSuccess, toastError, t]);
 
   const limits = PLAN_LIMITS[effectivePlan as keyof typeof PLAN_LIMITS];
 
@@ -341,6 +428,7 @@ export default function ProductsPage() {
     setEditedPrice("");
     setEditedShippingFee("");
     setSelectedImages(new Set());
+    setImportPlatform("aliexpress");
   };
 
   const handleUrlExtract = async () => {
@@ -349,8 +437,14 @@ export default function ProductsPage() {
 
     try {
       new URL(trimmed);
-      if (!/aliexpress\.com/i.test(trimmed)) {
-        setUrlImportError(t("products.importUrl.invalidUrl"));
+      const isAli = /aliexpress\.com/i.test(trimmed);
+      const isFb = /facebook\.com\/marketplace\/item\//i.test(trimmed) || /fb\.com\/marketplace\/item\//i.test(trimmed);
+      if (!isAli && !isFb) {
+        setUrlImportError(
+          importPlatform === "facebook"
+            ? t("products.importPlatform.urlPlaceholder.facebook")
+            : t("products.importUrl.invalidUrl")
+        );
         return;
       }
     } catch {
@@ -379,7 +473,7 @@ export default function ProductsPage() {
       setScrapedData(data);
       setEditedTitle(data.title || "");
       setEditedDescription(data.description || "");
-      setEditedPrice("");
+      setEditedPrice(data.price ? String(data.price) : "");
       setEditedShippingFee("");
       // Select all images by default
       setSelectedImages(new Set(data.images.map((_: string, i: number) => i)));
@@ -550,80 +644,23 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="p-4 bg-d-surface rounded-xl shadow-card flex flex-col gap-6">
+    <div className="p-3 sm:p-4 bg-d-surface rounded-xl shadow-card flex flex-col gap-4 sm:gap-6 overflow-hidden max-w-full">
       {/* Header */}
-      <div className="flex justify-between items-center gap-4">
-        <div className="w-full max-w-[500px] px-4 py-2 rounded-lg border border-d-input-border flex items-center gap-2">
+      <div className="relative flex flex-col gap-2 sm:gap-0 sm:flex-row sm:items-center sm:gap-3" ref={importRef}>
+        {/* Search bar */}
+        <div className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-d-input-border flex items-center gap-2">
+          <Search className="w-4 h-4 text-d-text-sub flex-shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchAndReset(e.target.value)}
             placeholder={t("products.searchPlaceholder")}
-            className="flex-1 text-sm text-d-text placeholder-d-text-sub outline-none bg-transparent"
+            className="flex-1 min-w-0 text-sm text-d-text placeholder-d-text-sub outline-none bg-transparent"
           />
-          <Search className="w-5 h-5 text-d-text flex-shrink-0" />
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <StyledButton
-            variant="outline"
-            size="sm"
-            icon={<Download className="w-4 h-4" />}
-            onClick={exportCSV}
-          >
-            {t("products.exportCSV")}
-          </StyledButton>
-          <div className="relative" ref={importRef}>
-            <StyledButton
-              variant="outline"
-              size="sm"
-              icon={<Upload className="w-4 h-4" />}
-              onClick={() => setShowImportDropdown((v) => !v)}
-            >
-              <span className="inline-flex items-center gap-1">{t("common.import")} <ChevronDown className="w-3.5 h-3.5" /></span>
-            </StyledButton>
-            {showImportDropdown && (
-              <div className="absolute right-0 top-full mt-1 w-80 bg-d-surface rounded-xl border border-d-border shadow-lg z-10 py-2">
-                <button
-                  onClick={openImportModal}
-                  className="w-full text-left px-3 py-2.5 text-sm text-d-text hover:bg-d-hover-bg transition-colors flex items-center gap-3 whitespace-nowrap"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-d-text-sub flex-shrink-0" />
-                  CSV / Excel Import
-                </button>
-                <button
-                  onClick={() => {
-                    if (effectivePlan !== "PRO") {
-                      setShowImportDropdown(false);
-                      setLimitMessage(t("products.importUrl.title") + " — " + t("orders.proFeature") + ". " + t("orders.upgradeToPro") + ".");
-                      return;
-                    }
-                    openUrlImportModal();
-                  }}
-                  className="w-full text-left px-3 py-2.5 text-sm text-d-text hover:bg-d-hover-bg transition-colors flex items-center gap-3 whitespace-nowrap"
-                >
-                  <Globe className="w-4 h-4 text-d-text-sub flex-shrink-0" />
-                  <span className="flex-1">{t("products.importUrl.label")}</span>
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full flex-shrink-0 bg-[#303030] text-white">
-                    <Sparkles className="w-2.5 h-2.5 text-lime-400" />
-                    PRO
-                  </span>
-                  <span className="text-[10px] font-bold uppercase bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">
-                    {t("products.importUrl.beta")}
-                  </span>
-                </button>
-                <button
-                  onClick={() => {
-                    downloadTemplate();
-                    setShowImportDropdown(false);
-                  }}
-                  className="w-full text-left px-3 py-2.5 text-sm text-d-text hover:bg-d-hover-bg transition-colors flex items-center gap-3 whitespace-nowrap"
-                >
-                  <Download className="w-4 h-4 text-d-text-sub flex-shrink-0" />
-                  Download Template
-                </button>
-              </div>
-            )}
-          </div>
+
+        {/* Action buttons row — stacks below search on mobile */}
+        <div className="flex items-center gap-2 flex-wrap">
           <StyledButton
             variant="primary"
             size="sm"
@@ -634,7 +671,64 @@ export default function ProductsPage() {
           >
             {t("products.addProduct")}
           </StyledButton>
+          <StyledButton
+            variant="secondary"
+            size="sm"
+            icon={<Upload className="w-4 h-4" />}
+            onClick={() => setShowImportDropdown((v) => !v)}
+          >
+            <span className="flex items-center gap-1">{t("common.import")} <ChevronDown className="w-3.5 h-3.5" /></span>
+          </StyledButton>
+          <StyledButton
+            variant="outline"
+            size="sm"
+            icon={<Download className="w-4 h-4" />}
+            onClick={exportCSV}
+          >
+            <span className="hidden sm:inline">{t("products.exportCSV")}</span>
+          </StyledButton>
         </div>
+
+        {/* Import dropdown */}
+        {showImportDropdown && (
+          <div className="absolute end-0 top-full mt-1 w-[calc(100vw-2rem)] sm:w-80 bg-d-surface rounded-xl border border-d-border shadow-lg z-30 py-2">
+            <button
+              onClick={openImportModal}
+              className="w-full text-start px-3 py-2.5 text-sm text-d-text hover:bg-d-hover-bg transition-colors flex items-center gap-3"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-d-text-sub flex-shrink-0" />
+              CSV / Excel Import
+            </button>
+            <button
+              onClick={() => {
+                if (effectivePlan !== "PRO") {
+                  setShowImportDropdown(false);
+                  setLimitMessage(t("products.importUrl.title") + " — " + t("orders.proFeature") + ". " + t("orders.upgradeToPro") + ".");
+                  return;
+                }
+                openUrlImportModal();
+              }}
+              className="w-full text-start px-3 py-2.5 text-sm text-d-text hover:bg-d-hover-bg transition-colors flex items-center gap-3"
+            >
+              <Globe className="w-4 h-4 text-d-text-sub flex-shrink-0" />
+              <span className="flex-1 truncate">{t("products.importUrl.label")}</span>
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full flex-shrink-0 bg-[#303030] text-white">
+                <Sparkles className="w-2.5 h-2.5 text-lime-400" />
+                PRO
+              </span>
+            </button>
+            <button
+              onClick={() => {
+                downloadTemplate();
+                setShowImportDropdown(false);
+              }}
+              className="w-full text-start px-3 py-2.5 text-sm text-d-text hover:bg-d-hover-bg transition-colors flex items-center gap-3"
+            >
+              <Download className="w-4 h-4 text-d-text-sub flex-shrink-0" />
+              Download Template
+            </button>
+          </div>
+        )}
       </div>
 
       {limitMessage && (
@@ -671,33 +765,51 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      {/* Category Tabs */}
+      {/* Category Filter */}
       {categories.length > 0 && (
-        <div className="px-3 py-2 bg-d-surface rounded-xl border border-d-border flex items-center gap-2">
-          <button
-            onClick={() => setCategoryAndReset("all")}
-            className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors ${
-              activeCategory === "all"
-                ? "bg-d-surface-tertiary text-d-text font-[550]"
-                : "text-d-text-sub hover:text-d-text"
-            }`}
-          >
-            All ({products.length})
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c.name}
-              onClick={() => setCategoryAndReset(c.name)}
-              className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors ${
-                activeCategory === c.name
-                  ? "bg-d-surface-tertiary text-d-text font-[550]"
-                  : "text-d-text-sub hover:text-d-text"
-              }`}
+        <>
+          {/* Mobile: dropdown */}
+          <div className="sm:hidden">
+            <select
+              value={activeCategory}
+              onChange={(e) => setCategoryAndReset(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg border border-d-input-border bg-d-input-bg text-sm text-d-text font-medium focus:outline-none focus:ring-1 focus:ring-d-link appearance-none"
             >
-              {c.name} ({c.count})
-            </button>
-          ))}
-        </div>
+              <option value="all">All ({products.length})</option>
+              {categories.map((c) => (
+                <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+              ))}
+            </select>
+          </div>
+          {/* Desktop: tabs */}
+          <div className="hidden sm:block">
+            <div className="px-3 py-2 bg-d-surface rounded-xl border border-d-border flex items-center gap-2 overflow-x-auto">
+              <button
+                onClick={() => setCategoryAndReset("all")}
+                className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors whitespace-nowrap ${
+                  activeCategory === "all"
+                    ? "bg-d-surface-tertiary text-d-text font-[550]"
+                    : "text-d-text-sub hover:text-d-text"
+                }`}
+              >
+                All ({products.length})
+              </button>
+              {categories.map((c) => (
+                <button
+                  key={c.name}
+                  onClick={() => setCategoryAndReset(c.name)}
+                  className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors whitespace-nowrap ${
+                    activeCategory === c.name
+                      ? "bg-d-surface-tertiary text-d-text font-[550]"
+                      : "text-d-text-sub hover:text-d-text"
+                  }`}
+                >
+                  {c.name} ({c.count})
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
       {/* Table */}
@@ -712,210 +824,211 @@ export default function ProductsPage() {
           </Link>
         </div>
       ) : (
-        <div className="bg-d-surface rounded-xl shadow-card flex flex-col overflow-hidden">
-          {/* Table Header */}
-          <div className="flex items-center bg-d-surface-secondary rounded-t-xl border-b border-d-border min-w-0">
-            <div className="w-12 shrink-0 p-3 flex items-center">
-              <input
-                type="checkbox"
-                checked={
-                  paginated.length > 0 &&
-                  selectedIds.size === paginated.length
-                }
-                onChange={toggleSelectAll}
-                className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer"
-              />
-            </div>
-            <button
-              onClick={() => toggleSort("title")}
-              className="w-64 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("products.product")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <button
-              onClick={() => toggleSort("price")}
-              className="w-28 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("products.price")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <button
-              onClick={() => toggleSort("orders")}
-              className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("products.orders")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <button
-              onClick={() => toggleSort("createdAt")}
-              className="w-36 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("products.date")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <div className="w-28 shrink-0 p-3.5 flex items-center">
-              <span className="text-d-text text-sm font-medium">{t("products.status")}</span>
-            </div>
-            <div className="flex-1 p-3.5 flex items-center">
-              <span className="text-d-text text-sm font-medium">{t("products.action")}</span>
-            </div>
-          </div>
-
-          {/* Table Rows */}
-          {paginated.length === 0 ? (
-            <div className="p-8 text-center text-d-text-sub text-sm">
-              No products match your search.
-            </div>
-          ) : (
-            paginated.map((product, i) => (
-              <div key={product.id}>
-                {i > 0 && <div className="border-t border-d-border" />}
-                <div className="flex items-center hover:bg-d-hover-bg transition-colors min-w-0">
-                  <div className="w-12 shrink-0 p-3 flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(product.id)}
-                      onChange={() => toggleSelect(product.id)}
-                      className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer"
-                    />
-                  </div>
-                  <div className="w-64 shrink-0 p-3 flex items-center gap-2">
-                    <div className="w-10 h-10 bg-d-surface-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
-                      {Array.isArray(product.images) &&
-                      product.images.length > 0 ? (
-                        <Image
-                          src={product.images[0]}
-                          alt={product.title}
-                          width={40}
-                          height={40}
-                          className="w-full h-full object-cover"
-                        />
+        <>
+          {/* ── Mobile Cards ── */}
+          <div className="lg:hidden space-y-3">
+            {paginated.length === 0 ? (
+              <div className="p-6 text-center text-d-text-sub text-sm">No products match your search.</div>
+            ) : (
+              paginated.map((product) => (
+                <div key={product.id} className="bg-d-surface rounded-xl border border-d-border p-3.5 space-y-3">
+                  {/* Top: image + title + toggle */}
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 bg-d-surface-secondary rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center">
+                      {Array.isArray(product.images) && product.images.length > 0 ? (
+                        <Image src={product.images[0]} alt={product.title} width={48} height={48} className="w-full h-full object-cover" />
                       ) : (
-                        <div className="text-d-text-muted text-[10px]">{t("common.noImg")}</div>
+                        <div className="text-d-text-muted text-[9px]">{t("common.noImg")}</div>
                       )}
                     </div>
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-d-link text-xs truncate">
-                        {product.id.slice(0, 8)}
-                      </span>
-                      <span className="text-d-text text-sm truncate">
-                        {product.title}
-                      </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-d-text truncate">{product.title}</p>
+                      <p className="text-xs text-d-text-sub mt-0.5">
+                        {product.price != null ? formatPrice(product.price) : "\u2014"}
+                        <span className="mx-1.5">&middot;</span>
+                        {product._count.orders} {t("products.orders")}
+                      </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleToggleActive(product); }}
+                      disabled={togglingActive === product.id}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 mt-0.5 ${togglingActive === product.id ? "opacity-50" : ""} ${product.isActive ? "bg-green-500" : "bg-gray-300"}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${product.isActive ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                    </button>
                   </div>
-                  <div className="w-28 shrink-0 p-3">
-                    <span className="text-d-text text-sm">
-                      {product.price != null
-                        ? formatPrice(product.price)
-                        : "\u2014"}
-                    </span>
-                  </div>
-                  <div className="w-24 shrink-0 p-3">
-                    <span className="text-d-text text-sm">
-                      {product._count.orders}
-                    </span>
-                  </div>
-                  <div className="w-36 shrink-0 p-3">
-                    <span className="text-d-text text-sm leading-5">
-                      {new Date(product.createdAt).toLocaleDateString("en-US", {
-                        month: "2-digit",
-                        day: "2-digit",
-                        year: "2-digit",
-                      })}
-                      <br />
-                      <span className="text-d-text-sub text-xs">
-                        at{" "}
-                        {new Date(product.createdAt).toLocaleTimeString(
-                          "en-US",
-                          {
-                            hour: "numeric",
-                            minute: "2-digit",
-                            hour12: true,
-                          }
-                        )}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="w-28 shrink-0 p-3">
-                    {product.price != null ? (
-                      <span className="inline-block px-2 py-1 bg-green-200 rounded-lg text-green-700 text-xs font-medium">
-                        {t("common.published")}
+
+                  {/* Stock + date row */}
+                  <div className="flex items-center gap-2 text-xs text-d-text-sub">
+                    {product.trackStock ? (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                        product.stockQuantity === 0 ? "bg-red-50 text-red-600" : product.stockQuantity <= product.lowStockThreshold ? "bg-amber-50 text-amber-600" : "bg-green-50 text-green-600"
+                      }`}>
+                        <Package className="w-3 h-3" />{product.stockQuantity}
                       </span>
                     ) : (
-                      <span className="inline-block px-2 py-1 bg-red-100 rounded-lg text-red-600 text-xs font-medium">
-                        {t("common.draft")}
-                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-d-surface-secondary text-[11px]"><Minus className="w-3 h-3" />{t("products.noTracking")}</span>
                     )}
+                    <span className={`text-[11px] font-medium ${product.isActive ? (product.price != null ? "text-green-600" : "text-amber-500") : "text-d-text-sub"}`}>
+                      {product.isActive ? (product.price != null ? t("common.published") : t("common.draft")) : t("common.inactive")}
+                    </span>
+                    <span className="ml-auto text-[11px]">
+                      {new Date(product.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
                   </div>
-                  <div className="flex-1 p-3">
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href={`/product/${product.slug}`}
-                        className="text-d-text-sub hover:text-d-link transition-colors"
-                      >
-                        <Eye className="w-5 h-5" />
-                      </Link>
-                      <button
-                        title="Copy public link"
-                        onClick={() => {
-                          const url = `${window.location.origin}/product/${product.slug}`;
-                          if (navigator.clipboard?.writeText) {
-                            navigator.clipboard.writeText(url);
-                          } else {
-                            const ta = document.createElement("textarea");
-                            ta.value = url;
-                            ta.style.position = "fixed";
-                            ta.style.opacity = "0";
-                            document.body.appendChild(ta);
-                            ta.select();
-                            document.execCommand("copy");
-                            document.body.removeChild(ta);
-                          }
-                          setCopiedId(product.id);
-                          setTimeout(() => setCopiedId(null), 2000);
-                        }}
-                        className="text-d-text-sub hover:text-d-link transition-colors"
-                      >
-                        {copiedId === product.id ? (
-                          <Check className="w-4 h-4 text-green-500" />
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-d-border">
+                    <Link href={`/dashboard/products/${product.id}/edit`} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-d-surface-secondary text-d-text text-xs font-medium hover:bg-d-hover-bg transition-colors">
+                      <Pencil className="w-3.5 h-3.5" /> {t("header.edit")}
+                    </Link>
+                    <Link href={`/product/${product.slug}`} className="w-9 h-9 flex items-center justify-center rounded-lg bg-d-surface-secondary text-d-text-sub hover:bg-d-hover-bg transition-colors">
+                      <Eye className="w-4 h-4" />
+                    </Link>
+                    <button
+                      title="Copy link"
+                      onClick={() => {
+                        const url = `${window.location.origin}/product/${product.slug}`;
+                        if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(url); } else {
+                          const ta = document.createElement("textarea"); ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+                        }
+                        toastSuccess(t("toast.linkCopied"), undefined, "copy");
+                        setCopiedId(product.id); setTimeout(() => setCopiedId(null), 2000);
+                      }}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg bg-d-surface-secondary text-d-text-sub hover:bg-d-hover-bg transition-colors"
+                    >
+                      {copiedId === product.id ? <Check className="w-4 h-4 text-green-500" /> : <Link2 className="w-4 h-4" />}
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget(product)}
+                      disabled={deleting === product.id}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* ── Desktop Table ── */}
+          <div className="hidden lg:block bg-d-surface rounded-xl shadow-card overflow-x-auto">
+            {/* Table Header */}
+            <div className="flex items-center bg-d-surface-secondary rounded-t-xl border-b border-d-border">
+              <div className="w-12 shrink-0 p-3 flex items-center">
+                <input type="checkbox" checked={paginated.length > 0 && selectedIds.size === paginated.length} onChange={toggleSelectAll} className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer" />
+              </div>
+              <button onClick={() => toggleSort("title")} className="w-64 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="flex-1 text-d-text text-sm font-medium">{t("products.product")}</span>
+                <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
+              </button>
+              <button onClick={() => toggleSort("price")} className="w-28 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="flex-1 text-d-text text-sm font-medium">{t("products.price")}</span>
+                <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
+              </button>
+              <button onClick={() => toggleSort("orders")} className="w-24 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="flex-1 text-d-text text-sm font-medium">{t("products.orders")}</span>
+                <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
+              </button>
+              <div className="w-32 shrink-0 p-3.5"><span className="text-d-text text-sm font-medium">{t("products.stock")}</span></div>
+              <button onClick={() => toggleSort("createdAt")} className="w-36 shrink-0 p-3.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="flex-1 text-d-text text-sm font-medium">{t("products.date")}</span>
+                <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
+              </button>
+              <div className="w-28 shrink-0 p-3.5"><span className="text-d-text text-sm font-medium">{t("products.status")}</span></div>
+              <div className="flex-1 p-3.5"><span className="text-d-text text-sm font-medium">{t("products.action")}</span></div>
+            </div>
+
+            {/* Table Rows */}
+            {paginated.length === 0 ? (
+              <div className="p-8 text-center text-d-text-sub text-sm">No products match your search.</div>
+            ) : (
+              paginated.map((product, i) => (
+                <div key={product.id}>
+                  {i > 0 && <div className="border-t border-d-border" />}
+                  <div className="flex items-center hover:bg-d-hover-bg transition-colors">
+                    <div className="w-12 shrink-0 p-3 flex items-center">
+                      <input type="checkbox" checked={selectedIds.has(product.id)} onChange={() => toggleSelect(product.id)} className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer" />
+                    </div>
+                    <div className="w-64 shrink-0 p-3 flex items-center gap-2">
+                      <div className="w-10 h-10 bg-d-surface-secondary rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        {Array.isArray(product.images) && product.images.length > 0 ? (
+                          <Image src={product.images[0]} alt={product.title} width={40} height={40} className="w-full h-full object-cover" />
                         ) : (
-                          <Link2 className="w-4 h-4" />
+                          <div className="text-d-text-muted text-[10px]">{t("common.noImg")}</div>
                         )}
-                      </button>
-                      <Link
-                        href={`/dashboard/products/${product.id}/edit`}
-                        className="text-d-text-sub hover:text-d-link transition-colors"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Link>
-                      <StyledButton
-                        variant="danger"
-                        size="icon"
-                        icon={<Trash2 className="w-4 h-4" />}
-                        onClick={() => setDeleteTarget(product)}
-                        disabled={deleting === product.id}
-                      />
+                      </div>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-d-link text-xs truncate">{product.id.slice(0, 8)}</span>
+                        <span className="text-d-text text-sm truncate">{product.title}</span>
+                      </div>
+                    </div>
+                    <div className="w-28 shrink-0 p-3"><span className="text-d-text text-sm">{product.price != null ? formatPrice(product.price) : "\u2014"}</span></div>
+                    <div className="w-24 shrink-0 p-3"><span className="text-d-text text-sm">{product._count.orders}</span></div>
+                    <div className="w-32 shrink-0 p-3 relative">
+                      {product.trackStock ? (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setStockEditId(stockEditId === product.id ? null : product.id); setStockEditQty(""); setStockEditCost(""); }}
+                          className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold transition-all hover:ring-2 hover:ring-d-border ${product.stockQuantity === 0 ? "bg-red-50 text-red-600 hover:bg-red-100" : product.stockQuantity <= product.lowStockThreshold ? "bg-amber-50 text-amber-600 hover:bg-amber-100" : "bg-green-50 text-green-600 hover:bg-green-100"}`}>
+                          <Package className="w-3 h-3" />{product.stockQuantity}<Plus className="w-3 h-3 opacity-50" />
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-d-surface-secondary text-[11px] text-d-text-sub"><Minus className="w-3 h-3" />{t("products.noTracking")}</span>
+                      )}
+                      {stockEditId === product.id && product.trackStock && (
+                        <div ref={stockEditRef} className="absolute top-full start-0 mt-1 z-20 bg-d-surface rounded-xl border border-d-border shadow-lg p-3 w-56" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-semibold text-d-text">{t("products.form.addStock")}</p>
+                            <button onClick={() => setStockEditId(null)} className="text-d-text-sub hover:text-d-text"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                          <div className="flex gap-1.5 mb-2">
+                            <input type="number" min="1" value={stockEditQty} onChange={(e) => setStockEditQty(e.target.value)} placeholder={t("products.form.quantity")} className="flex-1 bg-d-input-bg border border-d-input-border rounded-lg px-2 py-1.5 text-xs text-d-text focus:outline-none focus:ring-1 focus:ring-d-link" autoFocus />
+                            <input type="number" min="0" step="0.01" value={stockEditCost} onChange={(e) => setStockEditCost(e.target.value)} placeholder="DA" className="w-20 bg-d-input-bg border border-d-input-border rounded-lg px-2 py-1.5 text-xs text-d-text focus:outline-none focus:ring-1 focus:ring-d-link" />
+                          </div>
+                          <button onClick={() => handleQuickStockAdd(product.id)} disabled={stockEditSaving || !stockEditQty} className="w-full px-2 py-1.5 rounded-lg text-xs font-semibold text-white bg-d-text hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-1">
+                            <Plus className="w-3 h-3" />{stockEditSaving ? "..." : t("products.form.addStock")}
+                          </button>
+                          <a href={`/dashboard/products/${product.id}/edit`} className="block text-center text-[11px] text-d-link hover:underline mt-1.5">{t("products.form.recentMovements")} →</a>
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-36 shrink-0 p-3">
+                      <span className="text-d-text text-sm leading-5">
+                        {new Date(product.createdAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" })}
+                        <br /><span className="text-d-text-sub text-xs">at {new Date(product.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}</span>
+                      </span>
+                    </div>
+                    <div className="w-28 shrink-0 p-3">
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); handleToggleActive(product); }} disabled={togglingActive === product.id}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${togglingActive === product.id ? "opacity-50" : ""} ${product.isActive ? "bg-green-500" : "bg-gray-300"}`} title={product.isActive ? t("common.active") : t("common.inactive")}>
+                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${product.isActive ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                        </button>
+                        {product.isActive ? (product.price != null ? <span className="text-[11px] font-medium text-green-600">{t("common.published")}</span> : <span className="text-[11px] font-medium text-amber-500">{t("common.draft")}</span>) : <span className="text-[11px] font-medium text-d-text-sub">{t("common.inactive")}</span>}
+                      </div>
+                    </div>
+                    <div className="flex-1 p-3">
+                      <div className="flex items-center gap-3">
+                        <Link href={`/product/${product.slug}`} className="text-d-text-sub hover:text-d-link transition-colors"><Eye className="w-5 h-5" /></Link>
+                        <button title="Copy public link" onClick={() => { const url = `${window.location.origin}/product/${product.slug}`; if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(url); } else { const ta = document.createElement("textarea"); ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); } setCopiedId(product.id); setTimeout(() => setCopiedId(null), 2000); }} className="text-d-text-sub hover:text-d-link transition-colors">
+                          {copiedId === product.id ? <Check className="w-4 h-4 text-green-500" /> : <Link2 className="w-4 h-4" />}
+                        </button>
+                        <Link href={`/dashboard/products/${product.id}/edit`} className="text-d-text-sub hover:text-d-link transition-colors"><Pencil className="w-4 h-4" /></Link>
+                        <StyledButton variant="danger" size="icon" icon={<Trash2 className="w-4 h-4" />} onClick={() => setDeleteTarget(product)} disabled={deleting === product.id} />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
+              ))
+            )}
+          </div>
+        </>
       )}
 
       {/* Pagination */}
       {filtered.length > 0 && (
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-1 text-sm">
             <span className="text-d-text font-semibold">
               {(currentPage - 1) * ITEMS_PER_PAGE + 1}
@@ -932,7 +1045,7 @@ export default function ProductsPage() {
               <select
                 value={currentPage}
                 onChange={(e) => setCurrentPage(Number(e.target.value))}
-                className="pl-2 pr-1 py-1 rounded-lg border border-d-input-border text-d-text text-sm outline-none cursor-pointer"
+                className="ps-2 pe-1 py-1 rounded-lg border border-d-input-border text-d-text text-sm outline-none cursor-pointer"
               >
                 {Array.from({ length: totalPages }, (_, i) => (
                   <option key={i + 1} value={i + 1}>
@@ -1047,10 +1160,34 @@ export default function ProductsPage() {
                       {t("products.importUrl.source")}
                     </label>
                     <div className="flex gap-2">
-                      <div className="flex-1 border-2 border-d-text rounded-lg px-3 py-2.5 flex items-center gap-2 bg-d-surface-secondary">
-                        <span className="text-sm font-medium text-d-text">{t("products.importUrl.platformLabel")}</span>
-                        <Check className="w-4 h-4 text-green-500 ml-auto" />
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setImportPlatform("aliexpress"); setImportUrlValue(""); setUrlImportError(""); }}
+                        className={`flex-1 rounded-lg px-3 py-2.5 flex items-center gap-2 transition-all border-2 ${
+                          importPlatform === "aliexpress"
+                            ? "border-[#E62E04] bg-orange-50 ring-1 ring-[#E62E04]/30"
+                            : "border-d-border bg-d-surface-secondary hover:border-d-text-sub"
+                        }`}
+                      >
+                        <Link2 className="w-4 h-4 text-[#E62E04] flex-shrink-0" />
+                        <span className="text-sm font-medium text-d-text">{t("products.importPlatform.aliexpress")}</span>
+                        {importPlatform === "aliexpress" && <Check className="w-4 h-4 text-[#E62E04] ml-auto" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setImportPlatform("facebook"); setImportUrlValue(""); setUrlImportError(""); }}
+                        className={`flex-1 rounded-lg px-3 py-2.5 flex items-center gap-2 transition-all border-2 ${
+                          importPlatform === "facebook"
+                            ? "border-[#1877F2] bg-blue-50 ring-1 ring-[#1877F2]/30"
+                            : "border-d-border bg-d-surface-secondary hover:border-d-text-sub"
+                        }`}
+                      >
+                        <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="#1877F2">
+                          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+                        </svg>
+                        <span className="text-sm font-medium text-d-text">{t("products.importPlatform.facebook")}</span>
+                        {importPlatform === "facebook" && <Check className="w-4 h-4 text-[#1877F2] ml-auto" />}
+                      </button>
                     </div>
                   </div>
 
@@ -1066,7 +1203,7 @@ export default function ProductsPage() {
                         setImportUrlValue(e.target.value);
                         setUrlImportError("");
                       }}
-                      placeholder={t("products.importUrl.urlPlaceholder")}
+                      placeholder={importPlatform === "facebook" ? t("products.importPlatform.urlPlaceholder.facebook") : t("products.importUrl.urlPlaceholder")}
                       className="w-full px-3 py-2.5 rounded-lg border border-d-input-border text-sm text-d-text placeholder-d-text-sub outline-none bg-transparent focus:border-d-text transition-colors"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !urlImporting) handleUrlExtract();
@@ -1330,7 +1467,7 @@ export default function ProductsPage() {
                     setImportError("");
                     setImportSuccess("");
                   }}
-                  className="w-full text-sm text-d-text file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border file:border-d-input-border file:text-sm file:font-medium file:bg-d-surface-secondary file:text-d-text hover:file:bg-d-hover-bg file:cursor-pointer file:transition-colors"
+                  className="w-full text-sm text-d-text file:me-3 file:py-2 file:px-4 file:rounded-lg file:border file:border-d-input-border file:text-sm file:font-medium file:bg-d-surface-secondary file:text-d-text hover:file:bg-d-hover-bg file:cursor-pointer file:transition-colors"
                 />
                 <p className="text-xs text-d-text-sub mt-1">
                   {t("products.import.format")}
@@ -1341,7 +1478,7 @@ export default function ProductsPage() {
               {importFile && (
                 <div className="text-sm text-d-text-sub bg-d-surface-secondary rounded-lg px-3 py-2">
                   Selected: <span className="font-medium text-d-text">{importFile.name}</span>
-                  <span className="ml-2">({(importFile.size / 1024).toFixed(1)} KB)</span>
+                  <span className="ms-2">({(importFile.size / 1024).toFixed(1)} KB)</span>
                 </div>
               )}
 

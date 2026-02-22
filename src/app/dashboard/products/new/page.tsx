@@ -4,7 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import BlockEditor from "@/components/block-editor";
-import { Upload, X, Plus, Tag, Percent } from "lucide-react";
+import { Upload, X, Plus, Tag, Percent, Package } from "lucide-react";
 import { useStoreContext } from "@/lib/store-context";
 import { StyledButton } from "@/components/styled-button";
 import { useTranslation } from "@/components/language-provider";
@@ -54,6 +54,9 @@ export default function NewProductPage() {
   const [promoDiscount, setPromoDiscount] = useState(10);
   const [promoFixedAmount, setPromoFixedAmount] = useState(500);
   const [shippingFee, setShippingFee] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const [trackStock, setTrackStock] = useState(false);
+  const [valuationMethod, setValuationMethod] = useState<"PMP" | "FIFO" | "LIFO">("PMP");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -232,6 +235,9 @@ export default function NewProductPage() {
         ...(promotions.length > 0 ? { promotions } : {}),
         ...(useBlocks && contentHtml ? { contentBlocks: contentHtml } : {}),
         ...(shippingFee ? { shippingFee } : {}),
+        isActive,
+        trackStock,
+        valuationMethod,
       }),
     });
 
@@ -386,6 +392,73 @@ export default function NewProductPage() {
               <p className="text-[11px] text-d-text-sub">Optional. Helps organize your products.</p>
             </div>
           </div>
+
+          {/* Status & Stock Card */}
+          <div className="bg-d-surface rounded-xl shadow-card overflow-hidden">
+            {/* Active Status Bar */}
+            <div className={`px-4 py-3 flex items-center justify-between transition-colors ${isActive ? "bg-green-50" : "bg-gray-50"}`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isActive ? "bg-green-500" : "bg-gray-400"}`} />
+                <span className={`text-[13px] font-semibold ${isActive ? "text-green-700" : "text-gray-500"}`}>
+                  {isActive ? t("common.active") : t("common.inactive")}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsActive(!isActive)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isActive ? "bg-green-500" : "bg-gray-300"}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isActive ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-[11px] text-d-text-sub">{t("products.form.productActiveDesc")}</p>
+
+              {/* Track Stock */}
+              <div className="flex items-center justify-between p-3 bg-d-surface-secondary rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-d-text-sub" />
+                  <div>
+                    <p className="text-[13px] font-[450] text-d-text">{t("products.form.trackStock")}</p>
+                    <p className="text-[10px] text-d-text-sub">{t("products.form.trackStockDesc")}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTrackStock(!trackStock)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${trackStock ? "bg-green-500" : "bg-gray-300"}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${trackStock ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+                </button>
+              </div>
+
+              {/* Stock Settings */}
+              {trackStock && (
+                <div className="space-y-3">
+                  <div className="flex gap-1.5">
+                    {(["PMP", "FIFO", "LIFO"] as const).map((method) => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setValuationMethod(method)}
+                        className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                          valuationMethod === method
+                            ? "bg-d-text text-white"
+                            : "bg-d-surface-secondary text-d-text-sub hover:text-d-text"
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-start gap-2 p-2.5 bg-amber-50 rounded-lg">
+                    <span className="text-amber-500 text-sm mt-0.5">i</span>
+                    <p className="text-[11px] text-amber-700">{t("products.form.stockAddAfterCreate")}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ─── Right Column ─── */}
@@ -462,7 +535,7 @@ export default function NewProductPage() {
                     min="0"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg pl-12 pr-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
+                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg ps-12 pe-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
                     placeholder="0.00"
                   />
                 </div>
@@ -478,7 +551,7 @@ export default function NewProductPage() {
                     min="0"
                     value={shippingFee}
                     onChange={(e) => setShippingFee(e.target.value)}
-                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg pl-12 pr-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
+                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg ps-12 pe-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
                     placeholder="0.00"
                   />
                 </div>

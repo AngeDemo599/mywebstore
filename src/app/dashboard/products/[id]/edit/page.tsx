@@ -4,7 +4,7 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import BlockEditor from "@/components/block-editor";
-import { Upload, X, Plus, Tag, Percent } from "lucide-react";
+import { Upload, X, Plus, Tag, Percent, Package } from "lucide-react";
 import { StyledButton } from "@/components/styled-button";
 import { useTranslation } from "@/components/language-provider";
 
@@ -55,6 +55,24 @@ export default function EditProductPage() {
   const [promoDiscount, setPromoDiscount] = useState(10);
   const [promoFixedAmount, setPromoFixedAmount] = useState(500);
   const [shippingFee, setShippingFee] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const [trackStock, setTrackStock] = useState(false);
+  const [stockQuantity, setStockQuantity] = useState(0);
+  const [costPrice, setCostPrice] = useState<number | null>(null);
+  const [lowStockThreshold, setLowStockThreshold] = useState(5);
+  const [valuationMethod, setValuationMethod] = useState<"PMP" | "FIFO" | "LIFO">("PMP");
+  const [addStockQty, setAddStockQty] = useState("");
+  const [addStockCost, setAddStockCost] = useState("");
+  const [addStockNote, setAddStockNote] = useState("");
+  const [addingStock, setAddingStock] = useState(false);
+  const [recentMovements, setRecentMovements] = useState<Array<{
+    id: string;
+    type: string;
+    quantity: number;
+    unitCost: number | null;
+    createdAt: string;
+    note: string | null;
+  }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -86,6 +104,12 @@ export default function EditProductPage() {
         if (product.shippingFee != null) {
           setShippingFee(String(product.shippingFee));
         }
+        if (product.isActive !== undefined) setIsActive(product.isActive);
+        if (product.trackStock !== undefined) setTrackStock(product.trackStock);
+        if (product.stockQuantity !== undefined) setStockQuantity(product.stockQuantity);
+        if (product.costPrice != null) setCostPrice(product.costPrice);
+        if (product.lowStockThreshold !== undefined) setLowStockThreshold(product.lowStockThreshold);
+        if (product.valuationMethod) setValuationMethod(product.valuationMethod);
         if (product.contentBlocks) {
           if (typeof product.contentBlocks === "string") {
             setContentHtml(product.contentBlocks);
@@ -110,6 +134,14 @@ export default function EditProductPage() {
           }
           setUseBlocks(true);
         }
+        // Fetch stock movements
+        fetch(`/api/products/${id}/stock`).then((r) => r.json()).then((stockData) => {
+          if (stockData.movements) {
+            setRecentMovements(stockData.movements.slice(0, 5));
+          }
+          if (stockData.stockQuantity !== undefined) setStockQuantity(stockData.stockQuantity);
+          if (stockData.costPrice != null) setCostPrice(stockData.costPrice);
+        }).catch(() => {});
       } else {
         setError(t("products.form.productNotFound"));
       }
@@ -277,6 +309,10 @@ export default function EditProductPage() {
         promotions: promotions.length > 0 ? promotions : null,
         contentBlocks: useBlocks && contentHtml ? contentHtml : null,
         shippingFee: shippingFee ? shippingFee : null,
+        isActive,
+        trackStock,
+        lowStockThreshold,
+        valuationMethod,
       }),
     });
 
@@ -288,6 +324,40 @@ export default function EditProductPage() {
     } else {
       router.push("/dashboard/products");
     }
+  };
+
+  const handleAddStock = async () => {
+    const qty = parseInt(addStockQty);
+    const cost = parseFloat(addStockCost);
+    if (!qty || qty <= 0) return;
+    if (!cost && cost !== 0) return;
+
+    setAddingStock(true);
+    try {
+      const res = await fetch(`/api/products/${id}/stock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "PURCHASE",
+          quantity: qty,
+          unitCost: cost,
+          note: addStockNote || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStockQuantity(data.stockQuantity);
+        setCostPrice(data.costPrice);
+        setAddStockQty("");
+        setAddStockCost("");
+        setAddStockNote("");
+        // Refresh movements
+        const stockRes = await fetch(`/api/products/${id}/stock`);
+        const stockData = await stockRes.json();
+        if (stockData.movements) setRecentMovements(stockData.movements.slice(0, 5));
+      }
+    } catch {}
+    setAddingStock(false);
   };
 
   if (status === "loading" || loading) {
@@ -423,6 +493,200 @@ export default function EditProductPage() {
               <p className="text-[11px] text-d-text-sub">Optional. Helps organize your products.</p>
             </div>
           </div>
+
+          {/* Status Card */}
+          <div className="bg-d-surface rounded-xl shadow-card overflow-hidden">
+            {/* Active Status Bar */}
+            <div className={`px-4 py-3 flex items-center justify-between transition-colors ${isActive ? "bg-green-50" : "bg-gray-50"}`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${isActive ? "bg-green-500" : "bg-gray-400"}`} />
+                <span className={`text-[13px] font-semibold ${isActive ? "text-green-700" : "text-gray-500"}`}>
+                  {isActive ? t("common.active") : t("common.inactive")}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsActive(!isActive)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isActive ? "bg-green-500" : "bg-gray-300"}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${isActive ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+              </button>
+            </div>
+            <div className="px-4 pb-3 pt-2">
+              <p className="text-[11px] text-d-text-sub">{t("products.form.productActiveDesc")}</p>
+            </div>
+          </div>
+
+          {/* Stock Management Card */}
+          <div className="bg-d-surface rounded-xl shadow-card overflow-hidden">
+            {/* Track Stock Header */}
+            <div className="px-4 py-3 flex items-center justify-between border-b border-d-border">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-d-text" />
+                <span className="text-[13px] font-semibold text-d-text">{t("products.form.trackStock")}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTrackStock(!trackStock)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${trackStock ? "bg-green-500" : "bg-gray-300"}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${trackStock ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
+              </button>
+            </div>
+
+            {!trackStock ? (
+              <div className="px-4 py-4 text-center">
+                <p className="text-[11px] text-d-text-sub">{t("products.form.trackStockDesc")}</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-4">
+                {/* Stock Overview */}
+                <div className={`rounded-xl p-4 ${
+                  stockQuantity === 0 ? "bg-red-50" :
+                  stockQuantity <= lowStockThreshold ? "bg-amber-50" :
+                  "bg-green-50"
+                }`}>
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className={`text-[10px] uppercase font-semibold tracking-wider ${
+                        stockQuantity === 0 ? "text-red-400" :
+                        stockQuantity <= lowStockThreshold ? "text-amber-400" :
+                        "text-green-400"
+                      }`}>
+                        {stockQuantity === 0 ? t("products.form.outOfStock") :
+                         stockQuantity <= lowStockThreshold ? t("products.form.lowStock") :
+                         t("products.form.inStock")}
+                      </p>
+                      <p className={`text-3xl font-bold mt-0.5 ${
+                        stockQuantity === 0 ? "text-red-600" :
+                        stockQuantity <= lowStockThreshold ? "text-amber-600" :
+                        "text-green-600"
+                      }`}>
+                        {stockQuantity}
+                      </p>
+                      <p className={`text-[11px] ${
+                        stockQuantity === 0 ? "text-red-500" :
+                        stockQuantity <= lowStockThreshold ? "text-amber-500" :
+                        "text-green-500"
+                      }`}>{t("products.form.unitsInStock")}</p>
+                    </div>
+                    {costPrice != null && costPrice > 0 && (
+                      <div className="text-end">
+                        <p className="text-[10px] text-d-text-sub uppercase tracking-wider">{t("products.form.avgCost")}</p>
+                        <p className="text-lg font-bold text-d-text">{costPrice.toFixed(0)} DA</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick Add Stock */}
+                <div className="bg-d-surface-secondary rounded-xl p-3 space-y-2.5">
+                  <p className="text-[12px] font-semibold text-d-text flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" />
+                    {t("products.form.addStock")}
+                  </p>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      value={addStockQty}
+                      onChange={(e) => setAddStockQty(e.target.value)}
+                      placeholder={t("products.form.quantity")}
+                      className="flex-1 bg-d-input-bg border border-d-input-border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-d-link text-d-text"
+                    />
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={addStockCost}
+                        onChange={(e) => setAddStockCost(e.target.value)}
+                        placeholder={t("products.form.unitCost")}
+                        className="w-full bg-d-input-bg border border-d-input-border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-d-link text-d-text pe-8"
+                      />
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-d-text-sub">DA</span>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    value={addStockNote}
+                    onChange={(e) => setAddStockNote(e.target.value)}
+                    placeholder={t("products.form.notePlaceholder")}
+                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg px-2.5 py-1.5 text-[12px] focus:outline-none focus:ring-1 focus:ring-d-link text-d-text"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddStock}
+                    disabled={addingStock || !addStockQty || !addStockCost}
+                    className="w-full px-3 py-2 rounded-lg text-[12px] font-semibold text-white bg-d-text hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    {addingStock ? "..." : t("products.form.addStock")}
+                  </button>
+                </div>
+
+                {/* Recent Movements */}
+                {recentMovements.length > 0 && (
+                  <div>
+                    <p className="text-[12px] font-semibold text-d-text mb-2">{t("products.form.recentMovements")}</p>
+                    <div className="space-y-1">
+                      {recentMovements.map((m) => (
+                        <div key={m.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-d-surface-secondary transition-colors">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                            m.type === "PURCHASE" ? "bg-green-100 text-green-600" :
+                            m.type === "SALE" ? "bg-red-100 text-red-600" :
+                            m.type === "RETURN" ? "bg-blue-100 text-blue-600" :
+                            "bg-gray-100 text-gray-600"
+                          }`}>
+                            {m.type === "SALE" ? "-" : "+"}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[12px] font-semibold text-d-text">{m.quantity} {t("products.form.unitsInStock").toLowerCase()}</span>
+                            <p className="text-[10px] text-d-text-sub truncate">
+                              {m.type} {m.note ? `— ${m.note}` : ""}
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-d-text-sub shrink-0">
+                            {new Date(m.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Settings Row */}
+                <div className="border-t border-d-border pt-3 space-y-3">
+                  <div className="flex gap-1.5">
+                    {(["PMP", "FIFO", "LIFO"] as const).map((method) => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setValuationMethod(method)}
+                        className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                          valuationMethod === method
+                            ? "bg-d-text text-white"
+                            : "bg-d-surface-secondary text-d-text-sub hover:text-d-text"
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] text-d-text-sub shrink-0">{t("products.form.lowStockThreshold")}:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={lowStockThreshold}
+                      onChange={(e) => setLowStockThreshold(parseInt(e.target.value) || 0)}
+                      className="w-16 bg-d-input-bg border border-d-input-border rounded-lg px-2 py-1 text-[12px] text-center focus:outline-none focus:ring-1 focus:ring-d-link text-d-text"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ─── Right Column ─── */}
@@ -499,7 +763,7 @@ export default function EditProductPage() {
                     min="0"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg pl-12 pr-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
+                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg ps-12 pe-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
                     placeholder="0.00"
                   />
                 </div>
@@ -515,7 +779,7 @@ export default function EditProductPage() {
                     min="0"
                     value={shippingFee}
                     onChange={(e) => setShippingFee(e.target.value)}
-                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg pl-12 pr-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
+                    className="w-full bg-d-input-bg border border-d-input-border rounded-lg ps-12 pe-3 py-1.5 text-[13px] min-h-[32px] focus:outline-none focus:ring-1 focus:ring-d-link focus:border-d-link font-semibold text-d-text"
                     placeholder="0.00"
                   />
                 </div>

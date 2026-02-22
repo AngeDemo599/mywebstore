@@ -26,6 +26,7 @@ import {
 import { StyledButton } from "@/components/styled-button";
 import ProCTA from "@/components/pro-cta";
 import { useTranslation } from "@/components/language-provider";
+import { useToast } from "@/components/toast";
 
 interface Order {
   id: string;
@@ -52,6 +53,7 @@ const ITEMS_PER_PAGE = 8;
 
 export default function OrdersPage() {
   const { t } = useTranslation();
+  const { success: toastSuccess, error: toastError } = useToast();
   const { effectivePlan, status } = useEffectivePlan();
   const { balance: tokenBalance, refresh: refreshTokens } = useTokenBalance();
   const router = useRouter();
@@ -98,6 +100,7 @@ export default function OrdersPage() {
       document.body.removeChild(ta);
     }
     setCopiedId(orderId);
+    toastSuccess(t("toast.phoneCopied"), undefined, "copy");
     setTimeout(() => setCopiedId(null), 2000);
   };
 
@@ -133,10 +136,13 @@ export default function OrdersPage() {
             o.id === updated.id ? { ...o, status: updated.status } : o
           )
         );
+        toastSuccess(t("toast.orderStatusUpdated"), undefined, "order");
+      } else {
+        toastError(t("toast.orderStatusFailed"));
       }
       setUpdating(null);
     },
-    []
+    [toastSuccess, toastError, t]
   );
 
   const handleUnlock = useCallback(
@@ -155,12 +161,13 @@ export default function OrdersPage() {
           );
           refreshTokens();
           setUnlockModal(null);
+          toastSuccess(t("toast.orderUnlocked"), undefined, "order");
         } else {
           const data = await res.json();
-          alert(data.error || "Failed to unlock order");
+          toastError(data.error || t("toast.orderUnlockFailed"));
         }
       } catch {
-        alert("Failed to unlock order");
+        toastError(t("toast.orderUnlockFailed"));
       } finally {
         setUnlocking(false);
       }
@@ -307,6 +314,7 @@ export default function OrdersPage() {
       "Product",
       "Customer",
       "Phone",
+      "Address",
       "Qty",
       "Status",
       "Date",
@@ -316,6 +324,7 @@ export default function OrdersPage() {
       o.product.title,
       isFree && !o.isUnlocked ? o.name + "***" : o.name,
       isFree && !o.isUnlocked ? "***" : o.phone,
+      isFree && !o.isUnlocked ? "***" : o.address,
       o.quantity.toString(),
       o.status,
       new Date(o.createdAt).toLocaleDateString(),
@@ -330,6 +339,7 @@ export default function OrdersPage() {
     a.download = "orders.csv";
     a.click();
     URL.revokeObjectURL(url);
+    toastSuccess(t("toast.exportDone"), undefined, "download");
   };
 
   if (status === "loading" || loading) {
@@ -341,337 +351,207 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="p-4 bg-d-surface rounded-xl shadow-card flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex justify-between items-center gap-4">
-        <div className="w-full max-w-[500px] px-4 py-2 rounded-lg border border-d-input-border flex items-center gap-2">
+    <div className="p-2.5 sm:p-4 bg-d-surface rounded-xl shadow-card flex flex-col gap-3 sm:gap-6 overflow-hidden max-w-full">
+      {/* Header — search with inline filter & export */}
+      <div className="relative" ref={filterRef}>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-d-input-border">
+          <Search className="w-4 h-4 text-d-text-sub flex-shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchAndReset(e.target.value)}
             placeholder={t("orders.searchPlaceholder")}
-            className="flex-1 text-sm text-d-text placeholder-d-text-sub outline-none bg-transparent"
+            className="flex-1 text-sm text-d-text placeholder-d-text-sub outline-none bg-transparent min-w-0"
           />
-          <Search className="w-5 h-5 text-d-text flex-shrink-0" />
+          <div className="w-px h-5 bg-d-border flex-shrink-0" />
+          <button
+            onClick={() => setShowFilterDropdown((v) => !v)}
+            className="relative flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md hover:bg-d-hover-bg transition-colors"
+          >
+            <SlidersHorizontal size={15} className="text-d-text-sub" />
+            {(filterProduct !== "all" || filterPeriod !== "all") && (
+              <span className="absolute top-0.5 end-0.5 w-1.5 h-1.5 rounded-full bg-d-link" />
+            )}
+          </button>
+          <button
+            onClick={exportCSV}
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md hover:bg-d-hover-bg transition-colors"
+          >
+            <Download size={15} className="text-d-text-sub" />
+          </button>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <div className="relative" ref={filterRef}>
-            <StyledButton
-              variant="outline"
-              size="sm"
-              icon={<SlidersHorizontal className="w-4 h-4" />}
-              onClick={() => setShowFilterDropdown((v) => !v)}
-            >
-              {filterProduct !== "all" || filterPeriod !== "all" ? (
-                <span className="inline-flex items-center gap-1.5">
-                  {t("common.filter")}
-                  <span className="w-1.5 h-1.5 rounded-full bg-d-link" />
-                </span>
-              ) : (
-                t("common.filter")
-              )}
-            </StyledButton>
-            {showFilterDropdown && (
-              <div className="absolute right-0 top-full mt-1 w-72 bg-d-surface rounded-xl border border-d-border shadow-lg z-10 py-3 px-3 flex flex-col gap-3">
-                {/* Product filter */}
-                <div>
-                  <label className="block text-xs font-bold text-d-text-sub uppercase mb-1.5">
-                    {t("orders.product")}
-                  </label>
-                  <select
-                    value={filterProduct}
-                    onChange={(e) => {
-                      setFilterProduct(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-d-input-border text-d-text text-sm outline-none bg-transparent"
-                  >
-                    <option value="all">{t("orders.allProducts")}</option>
-                    {productNames.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
 
-                {/* Period filter */}
-                <div>
-                  <label className="block text-xs font-bold text-d-text-sub uppercase mb-1.5">
-                    <span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3" /> {t("orders.filterByPeriod")}</span>
-                  </label>
-                  <select
-                    value={filterPeriod}
-                    onChange={(e) => {
-                      setFilterPeriod(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-d-input-border text-d-text text-sm outline-none bg-transparent"
-                  >
-                    <option value="all">{t("orders.allPeriods")}</option>
-                    <option value="today">{t("orders.today")}</option>
-                    <option value="7days">{t("orders.last7days")}</option>
-                    <option value="30days">{t("orders.last30days")}</option>
-                    <option value="90days">{t("orders.last90days")}</option>
-                  </select>
-                </div>
-
-                {/* Clear filters */}
-                {(filterProduct !== "all" || filterPeriod !== "all") && (
-                  <button
-                    onClick={() => {
-                      setFilterProduct("all");
-                      setFilterPeriod("all");
-                      setCurrentPage(1);
-                    }}
-                    className="text-xs text-d-link hover:underline text-left"
-                  >
-                    {t("orders.clearFilters")}
-                  </button>
-                )}
-              </div>
+        {/* Filter dropdown */}
+        {showFilterDropdown && (
+          <div className="absolute start-0 sm:end-0 sm:start-auto top-full mt-1.5 w-[calc(100vw-2rem)] sm:w-72 max-w-sm bg-d-surface rounded-xl border border-d-border shadow-lg z-30 py-3 px-3 flex flex-col gap-3">
+            <div>
+              <label className="block text-xs font-bold text-d-text-sub uppercase mb-1.5">
+                {t("orders.product")}
+              </label>
+              <select
+                value={filterProduct}
+                onChange={(e) => {
+                  setFilterProduct(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-d-input-border text-d-text text-sm outline-none bg-transparent"
+              >
+                <option value="all">{t("orders.allProducts")}</option>
+                {productNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-d-text-sub uppercase mb-1.5">
+                <span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3" /> {t("orders.filterByPeriod")}</span>
+              </label>
+              <select
+                value={filterPeriod}
+                onChange={(e) => {
+                  setFilterPeriod(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-d-input-border text-d-text text-sm outline-none bg-transparent"
+              >
+                <option value="all">{t("orders.allPeriods")}</option>
+                <option value="today">{t("orders.today")}</option>
+                <option value="7days">{t("orders.last7days")}</option>
+                <option value="30days">{t("orders.last30days")}</option>
+                <option value="90days">{t("orders.last90days")}</option>
+              </select>
+            </div>
+            {(filterProduct !== "all" || filterPeriod !== "all") && (
+              <button
+                onClick={() => {
+                  setFilterProduct("all");
+                  setFilterPeriod("all");
+                  setCurrentPage(1);
+                }}
+                className="text-xs text-d-link hover:underline text-start"
+              >
+                {t("orders.clearFilters")}
+              </button>
             )}
           </div>
-          <StyledButton
-            variant="outline"
-            size="sm"
-            icon={<Download className="w-4 h-4" />}
-            onClick={exportCSV}
-          >
-            {t("orders.exportCSV")}
-          </StyledButton>
-        </div>
+        )}
       </div>
 
       {isFree ? (
         orders.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm">
-            You are on the <strong>FREE</strong> plan. Customer details are hidden and order status management is locked.
-            Use tokens to unlock individual orders (10 tokens each),
-            or upgrade to <strong>PRO</strong> for full access and status management.
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 sm:p-4 rounded-xl text-xs sm:text-sm">
+            <span className="sm:hidden">
+              <strong>FREE</strong> plan — details hidden. Use tokens to unlock orders or upgrade to <strong>PRO</strong>.
+            </span>
+            <span className="hidden sm:inline">
+              You are on the <strong>FREE</strong> plan. Customer details are hidden and order status management is locked.
+              Use tokens to unlock individual orders (10 tokens each),
+              or upgrade to <strong>PRO</strong> for full access and status management.
+            </span>
           </div>
         )
       ) : (
-        <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-sm flex items-center gap-3">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#303030] text-white text-[11px] font-bold">
-            <Sparkles size={11} className="text-lime-400" />
+        <div className="bg-emerald-50 border border-emerald-200 p-3 sm:p-4 rounded-xl text-xs sm:text-sm flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full bg-[#303030] text-white text-[10px] sm:text-[11px] font-bold flex-shrink-0">
+            <Sparkles size={10} className="text-lime-400" />
             PRO
           </div>
-          <div className="flex items-center gap-2 text-emerald-800">
-            <ShieldCheck size={16} className="flex-shrink-0" />
-            <span>Full access — all customer details visible and order management unlocked.</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 text-emerald-800 min-w-0">
+            <ShieldCheck size={14} className="flex-shrink-0" />
+            <span className="sm:hidden">Full access — all details visible.</span>
+            <span className="hidden sm:inline">Full access — all customer details visible and order management unlocked.</span>
           </div>
         </div>
       )}
 
-      {/* Status Tabs */}
-      <div className="px-3 py-2 bg-d-surface rounded-xl border border-d-border flex items-center gap-2">
-        {[
+      {/* Status Filter — dropdown on mobile, tabs on desktop */}
+      {(() => {
+        const tabs = [
           { key: "all", label: t("orders.all") },
           { key: "PENDING", label: t("orders.pending") },
           { key: "CONFIRMED", label: t("orders.confirmed") },
           { key: "IN_DELIVERY", label: t("orders.inDelivery") },
           { key: "DELIVERED", label: t("orders.delivered") },
           { key: "RETURNED", label: t("orders.returned") },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setTabAndReset(tab.key)}
-            className={`flex-1 px-1.5 py-1.5 rounded-lg text-sm font-bold text-center transition-colors ${
-              activeTab === tab.key
-                ? "bg-d-surface-tertiary text-d-text font-[550]"
-                : "text-d-text-sub hover:text-d-text"
-            }`}
-          >
-            {tab.label} ({statusCounts[tab.key] || 0})
-          </button>
-        ))}
-      </div>
+        ];
+        return (
+          <>
+            {/* Mobile: dropdown */}
+            <div className="sm:hidden">
+              <select
+                value={activeTab}
+                onChange={(e) => setTabAndReset(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-d-border bg-d-surface text-d-text text-sm font-semibold outline-none"
+              >
+                {tabs.map((tab) => (
+                  <option key={tab.key} value={tab.key}>
+                    {tab.label} ({statusCounts[tab.key] || 0})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {/* Desktop: tabs */}
+            <div className="hidden sm:block">
+              <div className="px-3 py-2 bg-d-surface rounded-xl border border-d-border flex items-center gap-2">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setTabAndReset(tab.key)}
+                    className={`flex-1 px-3 py-1.5 rounded-lg text-sm font-bold text-center transition-colors whitespace-nowrap ${
+                      activeTab === tab.key
+                        ? "bg-d-surface-tertiary text-d-text font-[550]"
+                        : "text-d-text-sub hover:text-d-text"
+                    }`}
+                  >
+                    {tab.label} ({statusCounts[tab.key] || 0})
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
-      {/* Table */}
+      {/* Table / Cards */}
       {orders.length === 0 ? (
-        <div className="bg-d-surface rounded-xl shadow-card p-8 text-center">
-          <p className="text-d-text-sub">{t("orders.noOrders")}</p>
+        <div className="bg-d-surface rounded-xl shadow-card p-6 sm:p-8 text-center">
+          <p className="text-d-text-sub text-sm">{t("orders.noOrders")}</p>
         </div>
       ) : (
-        <div className="bg-d-surface rounded-xl shadow-card flex flex-col overflow-hidden">
-          {/* Table Header */}
-          <div className="flex items-center bg-d-surface-secondary rounded-t-xl border-b border-d-border min-w-0">
-            <div className="w-12 shrink-0 p-3 flex items-center">
-              <input
-                type="checkbox"
-                checked={
-                  paginated.length > 0 &&
-                  selectedIds.size === paginated.length
-                }
-                onChange={toggleSelectAll}
-                className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer"
-              />
-            </div>
-            <button
-              onClick={() => toggleSort("product")}
-              className="w-52 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("orders.product")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <button
-              onClick={() => toggleSort("customer")}
-              className="w-40 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("orders.customer")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <div className="w-32 shrink-0 p-3.5 flex items-center">
-              <span className="text-d-text text-sm font-medium">{t("orders.phone")}</span>
-            </div>
-            <button
-              onClick={() => toggleSort("quantity")}
-              className="w-20 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("orders.quantity")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <button
-              onClick={() => toggleSort("createdAt")}
-              className="w-36 shrink-0 p-3.5 flex items-center gap-1 text-left hover:bg-d-active-bg transition-colors"
-            >
-              <span className="flex-1 text-d-text text-sm font-medium">
-                {t("orders.date")}
-              </span>
-              <ChevronsUpDown className="w-3.5 h-3.5 text-d-text-sub" />
-            </button>
-            <div className="w-32 shrink-0 p-3.5 flex items-center">
-              <span className="text-d-text text-sm font-medium">{t("orders.status")}</span>
-            </div>
-            <div className="flex-1 p-3.5 flex items-center">
-              <span className="text-d-text text-sm font-medium">
-                {t("common.action")}
-              </span>
-            </div>
-          </div>
-
-          {/* Table Rows */}
-          {paginated.length === 0 ? (
-            <div className="p-8 text-center text-d-text-sub text-sm">
-              No orders match your search.
-            </div>
-          ) : (
-            paginated.map((order, i) => {
-              const colors = statusStyles[order.status];
-              const isLocked = isFree && !order.isUnlocked;
-              return (
-                <div key={order.id}>
-                  {i > 0 && <div className="border-t border-d-border" />}
-                  <div className="flex items-center hover:bg-d-hover-bg transition-colors min-w-0">
-                    <div className="w-12 shrink-0 p-3 flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(order.id)}
-                        onChange={() => toggleSelect(order.id)}
-                        className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer"
-                      />
-                    </div>
-                    <div className="w-52 shrink-0 p-3">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-d-text text-sm font-medium truncate">
-                          {order.product.title}
-                        </span>
-                        {order.variants &&
-                          Object.keys(order.variants).length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                              {Object.entries(order.variants).map(
-                                ([key, val]) => (
-                                  <span
-                                    key={key}
-                                    className="bg-d-surface-secondary text-d-text-sub px-1.5 py-0.5 rounded text-xs"
-                                  >
-                                    {key}: {val}
-                                  </span>
-                                )
-                              )}
-                            </div>
-                          )}
+        <>
+          {/* ── Mobile Cards ── */}
+          <div className="lg:hidden space-y-2.5">
+            {paginated.length === 0 ? (
+              <div className="p-6 text-center text-d-text-sub text-sm">No orders match your search.</div>
+            ) : (
+              paginated.map((order) => {
+                const colors = statusStyles[order.status];
+                const isLocked = isFree && !order.isUnlocked;
+                return (
+                  <div key={order.id} className="bg-d-surface rounded-xl border border-d-border p-3 space-y-2.5">
+                    {/* Top: product + status */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-medium text-d-text truncate">{order.product.title}</p>
+                        {order.variants && Object.keys(order.variants).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {Object.entries(order.variants).map(([key, val]) => (
+                              <span key={key} className="bg-d-surface-secondary text-d-text-sub px-1.5 py-0.5 rounded text-[10px]">{key}: {val}</span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    <div className="w-40 shrink-0 p-3">
-                      <span className="text-d-text text-sm">
-                        {isLocked ? (
-                          <span className="flex items-center gap-1">
-                            {order.name}
-                            <span className="blur-sm select-none">Smith</span>
-                            <Lock size={12} className="text-d-text-sub" />
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1">
-                            {order.name}
-                            {isFree && order.isUnlocked && (
-                              <Unlock size={12} className="text-green-500" />
-                            )}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="w-32 shrink-0 p-3">
-                      <span className="text-d-text text-sm">
-                        {isLocked ? (
-                          <span className="flex items-center gap-1">
-                            <span className="blur-sm select-none">
-                              {order.phone}
-                            </span>
-                            <Lock size={12} className="text-d-text-sub" />
-                          </span>
-                        ) : (
-                          order.phone
-                        )}
-                      </span>
-                    </div>
-                    <div className="w-20 shrink-0 p-3">
-                      <span className="text-d-text text-sm">
-                        {order.quantity}
-                      </span>
-                    </div>
-                    <div className="w-36 shrink-0 p-3">
-                      <span className="text-d-text text-sm leading-5">
-                        {new Date(order.createdAt).toLocaleDateString("en-US", {
-                          month: "2-digit",
-                          day: "2-digit",
-                          year: "2-digit",
-                        })}
-                        <br />
-                        <span className="text-d-text-sub text-xs">
-                          at{" "}
-                          {new Date(order.createdAt).toLocaleTimeString(
-                            "en-US",
-                            {
-                              hour: "numeric",
-                              minute: "2-digit",
-                              hour12: true,
-                            }
-                          )}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="w-32 shrink-0 p-3">
                       <select
                         value={order.status}
                         onChange={(e) => {
-                          if (isFree) {
-                            e.target.value = order.status;
-                            setShowProModal(true);
-                          } else {
-                            updateStatus(order.id, e.target.value);
-                          }
+                          if (isFree) { e.target.value = order.status; setShowProModal(true); }
+                          else { updateStatus(order.id, e.target.value); }
                         }}
                         disabled={updating === order.id}
-                        className={`text-xs font-medium rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-d-link disabled:opacity-50 cursor-pointer border-0 appearance-none ${colors.bg} ${colors.text}`}
-                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center", paddingRight: "20px" }}
+                        className={`text-[10px] font-semibold rounded-md px-1.5 py-0.5 outline-none disabled:opacity-50 cursor-pointer border-0 appearance-none flex-shrink-0 ${colors.bg} ${colors.text}`}
+                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 3px center", paddingRight: "14px" }}
                       >
                         <option value="PENDING">PENDING</option>
                         <option value="CONFIRMED">CONFIRMED</option>
@@ -680,104 +560,232 @@ export default function OrdersPage() {
                         <option value="RETURNED">RETURNED</option>
                       </select>
                     </div>
-                    <div className="flex-1 p-3">
-                      {isLocked ? (
-                        <StyledButton
-                          variant="outline"
-                          size="sm"
-                          icon={<Coins size={14} />}
-                          onClick={() => setUnlockModal(order)}
-                        >
-                          {t("orders.unlock")}
-                        </StyledButton>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          {isFree && order.isUnlocked && (
-                            <span className="flex items-center gap-1 text-xs text-green-600 font-medium mr-1">
-                              <Unlock size={14} />
-                              Unlocked
-                            </span>
+
+                    {/* Info rows */}
+                    <div className="space-y-1.5 text-[11px] text-d-text-sub">
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-1 min-w-0 truncate">
+                          {isLocked ? (
+                            <><span className="text-d-text truncate">{order.name}</span><span className="blur-sm select-none">S</span><Lock size={9} className="flex-shrink-0" /></>
+                          ) : (
+                            <span className="text-d-text truncate">{order.name}</span>
                           )}
-                          <a
-                            href={`tel:${order.phone}`}
-                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-green-100 text-green-600 transition-colors"
-                            title="Call customer"
-                          >
-                            <Phone size={14} />
+                        </span>
+                        <span className="flex-shrink-0">x{order.quantity}</span>
+                        <span className="flex-shrink-0 ms-auto">
+                          {new Date(order.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Phone size={10} className="flex-shrink-0 text-d-text-sub" />
+                        {isLocked ? (
+                          <span className="flex items-center gap-1"><span className="blur-sm select-none">0555***</span><Lock size={9} className="flex-shrink-0" /></span>
+                        ) : (
+                          <span className="text-d-text truncate">{order.phone}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-d-text-sub"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        {isLocked ? (
+                          <span className="flex items-center gap-1"><span className="blur-sm select-none truncate">Alger, ***</span><Lock size={9} className="flex-shrink-0" /></span>
+                        ) : (
+                          <span className="text-d-text truncate">{order.address}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-d-border">
+                      {isLocked ? (
+                        <button onClick={() => setUnlockModal(order)} className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100 transition-colors">
+                          <Coins size={13} /> {t("orders.unlock")}
+                        </button>
+                      ) : (
+                        <>
+                          <a href={`tel:${order.phone}`} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-green-50 text-green-700 text-[11px] font-medium hover:bg-green-100 transition-colors">
+                            <Phone size={12} /> {t("orders.phone")}
                           </a>
-                          <a
-                            href={`https://wa.me/${order.phone.replace(/[^0-9+]/g, "")}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-emerald-100 text-emerald-600 transition-colors"
-                            title="WhatsApp"
-                          >
-                            <MessageCircle size={14} />
+                          <a href={`https://wa.me/${order.phone.replace(/[^0-9+]/g, "")}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-medium hover:bg-emerald-100 transition-colors">
+                            <MessageCircle size={12} /> WhatsApp
                           </a>
-                          <button
-                            onClick={() => copyPhone(order.id, order.phone)}
-                            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-d-active-bg text-d-text-sub transition-colors"
-                            title={t("orders.copyPhone")}
-                          >
-                            {copiedId === order.id ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                          <button onClick={() => copyPhone(order.id, order.phone)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-d-surface-secondary text-d-text-sub hover:bg-d-hover-bg transition-colors flex-shrink-0">
+                            {copiedId === order.id ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
                           </button>
-                        </div>
+                        </>
                       )}
                     </div>
                   </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* ── Desktop Table ── */}
+          <div className="hidden lg:block bg-d-surface rounded-xl shadow-card overflow-hidden">
+            <div className="overflow-x-auto">
+            {/* Table Header */}
+            <div className="flex items-center bg-d-surface-secondary rounded-t-xl border-b border-d-border min-w-[900px]">
+              <div className="w-10 shrink-0 p-2 flex items-center justify-center">
+                <input type="checkbox" checked={paginated.length > 0 && selectedIds.size === paginated.length} onChange={toggleSelectAll} className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer" />
+              </div>
+              <button onClick={() => toggleSort("product")} className="w-[160px] shrink-0 p-2.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="text-d-text text-xs font-medium">{t("orders.product")}</span>
+                <ChevronsUpDown className="w-3 h-3 text-d-text-sub flex-shrink-0" />
+              </button>
+              <button onClick={() => toggleSort("customer")} className="w-[120px] shrink-0 p-2.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="text-d-text text-xs font-medium">{t("orders.customer")}</span>
+                <ChevronsUpDown className="w-3 h-3 text-d-text-sub flex-shrink-0" />
+              </button>
+              <div className="w-[120px] shrink-0 p-2.5">
+                <span className="text-d-text text-xs font-medium">{t("orders.phone")}</span>
+              </div>
+              <div className="w-[160px] shrink-0 p-2.5">
+                <span className="text-d-text text-xs font-medium">{t("orders.address")}</span>
+              </div>
+              <button onClick={() => toggleSort("quantity")} className="w-12 shrink-0 p-2.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="text-d-text text-xs font-medium">{t("orders.quantity")}</span>
+              </button>
+              <button onClick={() => toggleSort("createdAt")} className="w-20 shrink-0 p-2.5 flex items-center gap-1 text-start hover:bg-d-active-bg transition-colors">
+                <span className="text-d-text text-xs font-medium">{t("orders.date")}</span>
+                <ChevronsUpDown className="w-3 h-3 text-d-text-sub flex-shrink-0" />
+              </button>
+              <div className="w-28 shrink-0 p-2.5"><span className="text-d-text text-xs font-medium">{t("orders.status")}</span></div>
+              <div className="w-24 shrink-0 p-2.5"><span className="text-d-text text-xs font-medium">{t("common.action")}</span></div>
+            </div>
+
+            {/* Table Rows */}
+            {paginated.length === 0 ? (
+              <div className="p-8 text-center text-d-text-sub text-sm">No orders match your search.</div>
+            ) : (
+              paginated.map((order, i) => {
+                const colors = statusStyles[order.status];
+                const isLocked = isFree && !order.isUnlocked;
+                return (
+                  <div key={order.id}>
+                    {i > 0 && <div className="border-t border-d-border" />}
+                    <div className="flex items-center hover:bg-d-hover-bg transition-colors min-w-[900px]">
+                      <div className="w-10 shrink-0 p-2 flex items-center justify-center">
+                        <input type="checkbox" checked={selectedIds.has(order.id)} onChange={() => toggleSelect(order.id)} className="w-4 h-4 rounded border-d-border text-d-text focus:ring-d-link cursor-pointer" />
+                      </div>
+                      <div className="w-[160px] shrink-0 p-2.5 min-w-0">
+                        <p className="text-d-text text-xs font-medium truncate">{order.product.title}</p>
+                        {order.variants && Object.keys(order.variants).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {Object.entries(order.variants).map(([key, val]) => (
+                              <span key={key} className="bg-d-surface-secondary text-d-text-sub px-1 py-0.5 rounded text-[10px]">{key}: {val}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="w-[120px] shrink-0 p-2.5">
+                        <span className="text-d-text text-xs truncate block">
+                          {isLocked ? (
+                            <span className="flex items-center gap-1">{order.name}<span className="blur-sm select-none">S</span><Lock size={11} className="text-d-text-sub flex-shrink-0" /></span>
+                          ) : (
+                            <span className="flex items-center gap-1 truncate">{order.name}{isFree && order.isUnlocked && <Unlock size={11} className="text-green-500 flex-shrink-0" />}</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="w-[120px] shrink-0 p-2.5">
+                        {isLocked ? (
+                          <span className="flex items-center gap-1 text-xs text-d-text-sub">
+                            <span className="blur-sm select-none">0555***</span>
+                            <Lock size={11} className="flex-shrink-0" />
+                          </span>
+                        ) : (
+                          <span className="text-d-text text-xs truncate block">{order.phone}</span>
+                        )}
+                      </div>
+                      <div className="w-[160px] shrink-0 p-2.5">
+                        {isLocked ? (
+                          <span className="flex items-center gap-1 text-xs text-d-text-sub">
+                            <span className="blur-sm select-none truncate">Alger, ***</span>
+                            <Lock size={11} className="flex-shrink-0" />
+                          </span>
+                        ) : (
+                          <span className="text-d-text text-xs truncate block" title={order.address}>{order.address}</span>
+                        )}
+                      </div>
+                      <div className="w-12 shrink-0 p-2.5"><span className="text-d-text text-xs">{order.quantity}</span></div>
+                      <div className="w-20 shrink-0 p-2.5">
+                        <span className="text-d-text text-xs">
+                          {new Date(order.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                      <div className="w-28 shrink-0 p-2.5">
+                        <select
+                          value={order.status}
+                          onChange={(e) => { if (isFree) { e.target.value = order.status; setShowProModal(true); } else { updateStatus(order.id, e.target.value); } }}
+                          disabled={updating === order.id}
+                          className={`text-[11px] font-medium rounded-md px-1.5 py-1 outline-none focus:ring-2 focus:ring-d-link disabled:opacity-50 cursor-pointer border-0 appearance-none w-full ${colors.bg} ${colors.text}`}
+                          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 4px center", paddingRight: "16px" }}
+                        >
+                          <option value="PENDING">PENDING</option>
+                          <option value="CONFIRMED">CONFIRMED</option>
+                          <option value="IN_DELIVERY">IN DELIVERY</option>
+                          <option value="DELIVERED">DELIVERED</option>
+                          <option value="RETURNED">RETURNED</option>
+                        </select>
+                      </div>
+                      <div className="w-24 shrink-0 p-2.5">
+                        {isLocked ? (
+                          <button onClick={() => setUnlockModal(order)} className="flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-800 font-medium">
+                            <Coins size={13} /> {t("orders.unlock")}
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-0.5">
+                            <a href={`tel:${order.phone}`} className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-green-100 text-green-600 transition-colors" title="Call"><Phone size={13} /></a>
+                            <a href={`https://wa.me/${order.phone.replace(/[^0-9+]/g, "")}`} target="_blank" rel="noopener noreferrer" className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-emerald-100 text-emerald-600 transition-colors" title="WhatsApp"><MessageCircle size={13} /></a>
+                            <button onClick={() => copyPhone(order.id, order.phone)} className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-d-active-bg text-d-text-sub transition-colors" title={t("orders.copyPhone")}>
+                              {copiedId === order.id ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* Pagination */}
       {filtered.length > 0 && (
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-1 text-sm">
-            <span className="text-d-text font-semibold">
-              {(currentPage - 1) * ITEMS_PER_PAGE + 1}
-            </span>
-            <span className="text-d-text-sub">-</span>
-            <span className="text-d-text-sub">
-              {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}
-            </span>
-            <span className="text-d-text-sub">{t("common.of")} {totalPages} {t("common.page")}</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-d-text text-sm">{t("common.page")}</span>
-              <select
-                value={currentPage}
-                onChange={(e) => setCurrentPage(Number(e.target.value))}
-                className="pl-2 pr-1 py-1 rounded-lg border border-d-input-border text-d-text text-sm outline-none cursor-pointer"
-              >
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    {i + 1}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <StyledButton
-                variant="outline"
-                size="icon"
-                icon={<ChevronLeft className="w-5 h-5" />}
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-              />
-              <StyledButton
-                variant="outline"
-                size="icon"
-                icon={<ChevronRight className="w-5 h-5" />}
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(totalPages, p + 1))
-                }
-                disabled={currentPage === totalPages}
-              />
-            </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] sm:text-sm text-d-text-sub">
+            {(currentPage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} {t("common.of")} {filtered.length}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={currentPage}
+              onChange={(e) => setCurrentPage(Number(e.target.value))}
+              className="px-1.5 py-1 rounded-lg border border-d-input-border text-d-text text-xs sm:text-sm outline-none cursor-pointer"
+            >
+              {Array.from({ length: totalPages }, (_, i) => (
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+            <StyledButton
+              variant="outline"
+              size="icon"
+              icon={<ChevronLeft className="w-4 h-4" />}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            />
+            <StyledButton
+              variant="outline"
+              size="icon"
+              icon={<ChevronRight className="w-4 h-4" />}
+              onClick={() =>
+                setCurrentPage((p) => Math.min(totalPages, p + 1))
+              }
+              disabled={currentPage === totalPages}
+            />
           </div>
         </div>
       )}

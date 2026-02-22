@@ -5,9 +5,8 @@ import {
   getEffectivePlan,
   unauthorized,
   badRequest,
-  TOKEN_PACKS,
-  TOKEN_PACKS_PRO,
 } from "@/lib/auth-helpers";
+import { getAppConfig, buildTokenPacks } from "@/lib/app-config";
 
 export async function PATCH(
   req: NextRequest,
@@ -43,6 +42,8 @@ export async function PATCH(
 
   if (action === "approve") {
     // Determine token amount based on user's plan
+    const cfg = await getAppConfig();
+    const { TOKEN_PACKS, TOKEN_PACKS_PRO } = buildTokenPacks(cfg);
     const purchasingUser = purchase.user;
     const effectivePlan = getEffectivePlan(purchasingUser.plan, purchasingUser.planExpiresAt);
     const packs = effectivePlan === "PRO" ? TOKEN_PACKS_PRO : TOKEN_PACKS;

@@ -5,6 +5,8 @@ import { resolveStyle, styleToCSS, getStyleClasses, getFontUrl } from "@/lib/the
 import { formatPrice } from "@/lib/utils";
 import { getTranslator, getDirection, type Locale } from "@/i18n";
 import { isDemoStore } from "@/lib/demo";
+import MetaPixel from "@/components/meta-pixel";
+import AdBanner from "@/components/ad-banner";
 
 function getCoverBackground(coverStyle: string, primary: string, secondary: string) {
   if (coverStyle === "solid") return primary;
@@ -184,7 +186,7 @@ export default async function StorePublicPage({
   const store = await prisma.store.findUnique({
     where: { slug },
     include: {
-      products: { orderBy: { createdAt: "desc" } },
+      products: { where: { isActive: true }, orderBy: { createdAt: "desc" } },
     },
   });
 
@@ -207,6 +209,7 @@ export default async function StorePublicPage({
       // eslint-disable-next-line @next/next/no-page-custom-font
       <link rel="stylesheet" href={fontUrl} />
     )}
+    <MetaPixel pixelId={store.metaPixelId} />
     <main dir={dir}>
     <div
       className="min-h-screen"
@@ -240,6 +243,7 @@ export default async function StorePublicPage({
       )}
 
       <div className="max-w-6xl mx-auto py-8 px-4">
+        <AdBanner slot="store-top" format="horizontal" className="mb-6" />
 
         {store.products.length === 0 ? (
           <div

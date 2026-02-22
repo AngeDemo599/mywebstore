@@ -34,6 +34,43 @@ export async function PATCH(
     return badRequest("Invalid status");
   }
 
+  // If changing to RETURNED and not already RETURNED, restore stock
+  if (status === "RETURNED" && order.status !== "RETURNED") {
+    const product = await prisma.product.findUnique({
+      where: { id: order.productId },
+      select: { trackStock: true },
+    });
+
+    if (product?.trackStock) {
+      await prisma.$transaction(async (tx) => {
+        // Create RETURN movement
+        await tx.stockMovement.create({
+          data: {
+            productId: order.productId,
+            type: "RETURN",
+            quantity: order.quantity,
+            note: `Order ${id} returned`,
+          },
+        });
+
+        // Increment stock
+        await tx.product.update({
+          where: { id: order.productId },
+          data: { stockQuantity: { increment: order.quantity } },
+        });
+
+        // Update order status
+        await tx.order.update({
+          where: { id },
+          data: { status },
+        });
+      });
+
+      const updated = await prisma.order.findUnique({ where: { id } });
+      return NextResponse.json(updated);
+    }
+  }
+
   const updated = await prisma.order.update({
     where: { id },
     data: { status },

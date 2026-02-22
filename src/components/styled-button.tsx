@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
+import { playClick } from '@/lib/sounds';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
@@ -105,11 +106,15 @@ export const StyledButton: React.FC<StyledButtonProps> = ({
     );
   }
 
-  const { disabled, ...buttonProps } = props as ButtonOwnProps;
+  const { disabled, onClick, ...buttonProps } = props as ButtonOwnProps;
   return (
     <button
       className={combinedClassName}
       disabled={disabled || isLoading}
+      onClick={(e) => {
+        playClick();
+        onClick?.(e);
+      }}
       {...buttonProps}
     >
       {content}

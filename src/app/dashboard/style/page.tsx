@@ -20,6 +20,7 @@ import {
 import { useEffectivePlan } from "@/lib/use-effective-plan";
 import { useStoreContext } from "@/lib/store-context";
 import { useTranslation } from "@/components/language-provider";
+import { useToast } from "@/components/toast";
 import { resolveStyle, styleToCSS, getStyleClasses, getFontUrl } from "@/lib/theme";
 import {
   StoreStyle,
@@ -122,7 +123,7 @@ function OptionCard({
     <button
       type="button"
       onClick={onClick}
-      className={`relative p-3 rounded-xl border-2 text-left transition-all ${
+      className={`relative p-3 rounded-xl border-2 text-start transition-all ${
         active
           ? "border-d-text bg-d-surface-tertiary"
           : "border-d-border hover:border-d-text-sub"
@@ -157,7 +158,7 @@ function PresetCard({
     <button
       type="button"
       onClick={onClick}
-      className={`relative p-4 rounded-xl border-2 text-left transition-all w-full ${
+      className={`relative p-4 rounded-xl border-2 text-start transition-all w-full ${
         active
           ? "border-d-text bg-d-surface-tertiary shadow-sm"
           : "border-d-border hover:border-d-text-sub"
@@ -391,6 +392,8 @@ export default function SouqStylePage() {
   const { effectivePlan } = useEffectivePlan();
   const { activeStore, refreshStores } = useStoreContext();
 
+  const { success: toastSuccess, error: toastError } = useToast();
+
   const [style, setStyle] = useState<StoreStyle>(PRESET_SOUQFLOW);
   const [activeTab, setActiveTab] = useState<TabId>("presets");
   const [saving, setSaving] = useState(false);
@@ -493,10 +496,13 @@ export default function SouqStylePage() {
       if (res.ok) {
         setSaved(true);
         await refreshStores();
+        toastSuccess(t("toast.styleSaved"), undefined, "style");
         setTimeout(() => setSaved(false), 3000);
+      } else {
+        toastError(t("toast.styleSaveFailed"));
       }
     } catch {
-      // ignore
+      toastError(t("toast.styleSaveFailed"));
     } finally {
       setSaving(false);
     }
@@ -643,7 +649,7 @@ export default function SouqStylePage() {
 
                 <div>
                   <p className="text-[13px] font-medium text-d-text mb-2">{t("style.btn.radius")}</p>
-                  <div className="grid grid-cols-5 gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                     {(["none", "sm", "md", "lg", "full"] as const).map((r) => (
                       <OptionCard key={r} label={r} active={style.buttons.radius === r} onClick={() => updateButtons("radius", r)}>
                         <div className="h-6 bg-d-surface-secondary" style={{ borderRadius: RADIUS_MAP[r] }} />

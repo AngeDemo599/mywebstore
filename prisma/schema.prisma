@@ -43,6 +43,7 @@ enum TokenTransactionType {
   UNLOCK_ORDER
   PRO_BONUS
   REFERRAL_BONUS
+  AD_FREE
 }
 
 enum TokenPurchaseStatus {
@@ -66,6 +67,19 @@ enum AnalyticsEventType {
   IMAGE_CLICK
 }
 
+enum ValuationMethod {
+  PMP
+  FIFO
+  LIFO
+}
+
+enum StockMovementType {
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+}
+
 model User {
   id                String             @id @default(uuid())
   name              String?
@@ -80,6 +94,7 @@ model User {
   analyticsAccessType   AnalyticsAccessType  @default(NONE)
   analyticsTrialEndsAt  DateTime?
   referralCode          String?              @unique
+  adFreeUntil           DateTime?
   referredById          String?
   referredBy            User?                @relation("UserReferrals", fields: [referredById], references: [id])
   referrals             User[]               @relation("UserReferrals")
@@ -130,29 +145,53 @@ model Store {
   slug      String    @unique
   logo      String?
   theme     Json?
-  language  String    @default("ar")
-  ownerId   String
-  owner     User      @relation(fields: [ownerId], references: [id])
-  createdAt DateTime  @default(now())
-  products  Product[]
+  language    String    @default("ar")
+  metaPixelId       String?
+  sheetsWebhookUrl  String?
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime  @default(now())
+  products    Product[]
 }
 
 model Product {
-  id            String   @id @default(uuid())
-  title         String
-  description   String
-  contentBlocks Json?
-  price         Float?
-  category      String?
-  images        Json     @default("[]")
-  variations    Json?
-  promotions    Json?
-  shippingFee   Float?
-  slug          String   @unique
-  storeId       String
-  store         Store    @relation(fields: [storeId], references: [id])
-  createdAt     DateTime @default(now())
-  orders        Order[]
+  id                String           @id @default(uuid())
+  title             String
+  description       String
+  contentBlocks     Json?
+  price             Float?
+  category          String?
+  images            Json             @default("[]")
+  variations        Json?
+  promotions        Json?
+  shippingFee       Float?
+  slug              String           @unique
+  isActive          Boolean          @default(true)
+  trackStock        Boolean          @default(false)
+  stockQuantity     Int              @default(0)
+  lowStockThreshold Int              @default(5)
+  costPrice         Float?
+  valuationMethod   ValuationMethod  @default(PMP)
+  storeId           String
+  store             Store            @relation(fields: [storeId], references: [id])
+  createdAt         DateTime         @default(now())
+  orders            Order[]
+  stockMovements    StockMovement[]
+}
+
+model StockMovement {
+  id        String            @id @default(uuid())
+  productId String
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type      StockMovementType
+  quantity  Int
+  unitCost  Float?
+  totalCost Float?
+  reference String?
+  note      String?
+  createdAt DateTime          @default(now())
+
+  @@index([productId, createdAt])
 }
 
 model UpgradeRequest {
@@ -272,4 +311,10 @@ model ReferralEarning {
   createdAt   DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+model AppConfig {
+  id        String   @id @default("singleton")
+  config    Json
+  updatedAt DateTime @updatedAt
 }
