@@ -6,8 +6,7 @@
     "dev": "next dev --port 4544 --hostname 0.0.0.0",
     "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate"
+    "lint": "eslint"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.5",
