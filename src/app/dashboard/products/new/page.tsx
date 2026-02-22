@@ -258,7 +258,7 @@ export default function NewProductPage() {
           <p className="text-d-text-sub mb-4">You need a store first.</p>
           <StyledButton
             variant="primary"
-            onClick={() => router.push("/dashboard/stores/new")}
+            onClick={() => router.push("/onboarding")}
           >
             Create a store
           </StyledButton>

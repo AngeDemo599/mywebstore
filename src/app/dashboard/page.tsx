@@ -280,10 +280,12 @@ export default function DashboardPage() {
           <ClipboardList className="w-4 h-4 text-d-text-sub" />
           {t("dash.viewOrders")}
         </Link>
-        <Link href="/dashboard/stores" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-d-border bg-d-surface text-[13px] font-medium text-d-text hover:bg-d-hover-bg transition-colors shadow-card">
+        {activeStore && (
+        <Link href={`/store/${activeStore.slug}`} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-d-border bg-d-surface text-[13px] font-medium text-d-text hover:bg-d-hover-bg transition-colors shadow-card" target="_blank">
           <ExternalLink className="w-4 h-4 text-d-text-sub" />
           {t("dash.viewStore")}
         </Link>
+        )}
         <Link href="/dashboard/profile" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-d-border bg-d-surface text-[13px] font-medium text-d-text hover:bg-d-hover-bg transition-colors shadow-card">
           <Settings className="w-4 h-4 text-d-text-sub" />
           {t("dash.settings")}
