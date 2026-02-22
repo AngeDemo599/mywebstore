@@ -5,7 +5,7 @@ export type Locale = "ar" | "fr";
 
 export const dictionaries: Record<Locale, Record<string, string>> = { ar, fr };
 
-export const defaultLocale: Locale = "ar";
+export const defaultLocale: Locale = "fr";
 
 export function getDirection(locale: Locale): "rtl" | "ltr" {
   return locale === "ar" ? "rtl" : "ltr";
