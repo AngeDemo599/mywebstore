@@ -7,7 +7,7 @@ import { LanguageProvider } from "@/components/language-provider";
 import { StoreProvider } from "@/lib/store-context";
 import { ToastProvider } from "@/components/toast";
 import { type Locale, defaultLocale, getDirection } from "@/i18n";
-import Script from "next/script";
+
 
 const inter = Inter({
   variable: "--font-inter",
@@ -44,10 +44,10 @@ export default async function RootLayout({
     <html lang={locale} dir={dir} suppressHydrationWarning>
       <head>
         {process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID && (
-          <Script
+          <script
+            async
             src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID}`}
             crossOrigin="anonymous"
-            strategy="lazyOnload"
           />
         )}
       </head>
